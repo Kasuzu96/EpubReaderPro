@@ -18,22 +18,20 @@ def create_installer_package():
         os.remove(OUTPUT_ZIP)
 
     with zipfile.ZipFile(OUTPUT_ZIP, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        # 1. Include Instalar_EpubReaderPro.bat at root of zip
         if os.path.exists(INSTALLER_BAT):
             zipf.write(INSTALLER_BAT, "Instalar_EpubReaderPro.bat")
 
-        # 2. Include all app binaries in dist/EpubReaderPro
         for root, dirs, files in os.walk(DIST_DIR):
             for file in files:
                 abs_file = os.path.join(root, file)
                 rel_file = os.path.relpath(abs_file, APP_DIR)
                 zipf.write(abs_file, rel_file)
 
-    print(f"==================================================")
-    print(f"¡PAQUETE INSTALADOR CREADO CON ÉXITO!")
+    print("==================================================")
+    print("¡PAQUETE INSTALADOR RE-EMPAQUETADO CON ÉXITO!")
     print(f"Ubicación del ZIP listo para llevar a cualquier PC:")
     print(f"{OUTPUT_ZIP}")
-    print(f"==================================================")
+    print("==================================================")
 
 if __name__ == "__main__":
     create_installer_package()
