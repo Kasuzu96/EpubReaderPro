@@ -5,6 +5,7 @@ import zipfile
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 DIST_DIR = os.path.join(APP_DIR, "dist", "EpubReaderPro")
 INSTALLER_BAT = os.path.join(APP_DIR, "Instalar_EpubReaderPro.bat")
+ICON_FILE = os.path.join(APP_DIR, "app_icon.ico")
 OUTPUT_ZIP = os.path.join(APP_DIR, "EpubReaderPro_Instalador_Completo.zip")
 
 def create_installer_package():
@@ -13,6 +14,10 @@ def create_installer_package():
     if not os.path.exists(DIST_DIR):
         print("ERROR: No se encontró la carpeta dist/EpubReaderPro. Compila primero.")
         return
+
+    # Copy icon into dist folder if needed
+    if os.path.exists(ICON_FILE):
+        shutil.copy2(ICON_FILE, os.path.join(DIST_DIR, "app_icon.ico"))
 
     if os.path.exists(OUTPUT_ZIP):
         os.remove(OUTPUT_ZIP)
