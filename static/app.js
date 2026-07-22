@@ -105,6 +105,22 @@ function hideGlobalLoading() {
   if (globalLoadingOverlay) globalLoadingOverlay.style.display = 'none';
 }
 
+// Intercept Window Closing from pywebview (Click on top-right X button)
+window.handleWindowClosePrompt = function() {
+  if (currentBookId && readerContainer.style.display !== 'none') {
+    const confirmSave = confirm("¿Deseas fijar la frase actual como tu marcapáginas de lectura antes de cerrar el programa?");
+    if (confirmSave) {
+      const paraInfo = getVisibleTopParagraphInfo();
+      const finalCfi = paraInfo ? paraInfo.cfi : currentVisibleCfi;
+      const finalSnippet = paraInfo ? paraInfo.textSnippet : currentVisibleTextSnippet;
+      if (finalCfi) {
+        saveExactPickedBookmark(finalCfi, finalSnippet || "Última lectura");
+      }
+    }
+  }
+  return true; // Allow application window to close cleanly
+};
+
 // Initialize PyWebview Connection
 window.addEventListener('pywebviewready', () => {
   initAppWithSync();
@@ -351,21 +367,14 @@ function showLibraryScreen() {
 }
 
 btnBackLibrary.addEventListener('click', () => {
-  if (currentBookId) {
-    const confirmSave = confirm("¿Deseas fijar la frase actual como tu marcapáginas de lectura antes de volver a la biblioteca?");
-    if (confirmSave) {
-      const paraInfo = getVisibleTopParagraphInfo();
-      const finalCfi = paraInfo ? paraInfo.cfi : currentVisibleCfi;
-      const finalSnippet = paraInfo ? paraInfo.textSnippet : currentVisibleTextSnippet;
-      if (finalCfi) {
-        saveExactPickedBookmark(finalCfi, finalSnippet || "Última lectura");
-      }
-    }
-  }
+  window.handleWindowClosePrompt();
   showLibraryScreen();
 });
 
-brandLogo.addEventListener('click', showLibraryScreen);
+brandLogo.addEventListener('click', () => {
+  window.handleWindowClosePrompt();
+  showLibraryScreen();
+});
 
 function renderLibraryGrid() {
   libraryGrid.innerHTML = '';
