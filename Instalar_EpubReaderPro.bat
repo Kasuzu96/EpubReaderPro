@@ -17,10 +17,12 @@ if not exist "%TARGET_DIR%" mkdir "%TARGET_DIR%"
 
 echo [2/3] Copiando archivos y dependencias de la aplicacion...
 
-if exist "%SCRIPT_DIR%dist\EpubReaderPro\EpubReaderPro.exe" (
-    xcopy "%SCRIPT_DIR%dist\EpubReaderPro\*" "%TARGET_DIR%\" /E /I /Y /Q >nul
-) else if exist "%SCRIPT_DIR%EpubReaderPro.exe" (
+if exist "%SCRIPT_DIR%EpubReaderPro.exe" (
     xcopy "%SCRIPT_DIR%*" "%TARGET_DIR%\" /E /I /Y /Q >nul
+) else if exist "%SCRIPT_DIR%dist\EpubReaderPro\EpubReaderPro.exe" (
+    xcopy "%SCRIPT_DIR%dist\EpubReaderPro\*" "%TARGET_DIR%\" /E /I /Y /Q >nul
+) else if exist "%SCRIPT_DIR%EpubReaderPro\EpubReaderPro.exe" (
+    xcopy "%SCRIPT_DIR%EpubReaderPro\*" "%TARGET_DIR%\" /E /I /Y /Q >nul
 ) else (
     echo ERROR: No se encontro EpubReaderPro.exe en la carpeta del instalador.
     pause
