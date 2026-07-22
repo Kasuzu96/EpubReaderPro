@@ -239,20 +239,32 @@
       </div>
       
       <div class="modal-body">
-        <p class="modal-desc">Conecta con tu cuenta de Google Drive para crear automáticamente la carpeta <strong>EpubReaderData</strong> en tu nube y mantener tus libros sincronizados.</p>
+        <p class="modal-desc">Conecta con tu cuenta de Google Drive para crear automáticamente la carpeta <strong>EpubReaderData</strong> en tu nube y mantener tus libros y marcadores al día.</p>
         
         <div class="sync-status-box">
           <label>Estado de la Conexión en la Nube:</label>
           <div id="sync-folder-path" class="sync-folder-path-display">No conectado (Guardando localmente en AppData)</div>
         </div>
 
+        <!-- Detailed Visual Connection Guide -->
+        <div class="cloud-instructions-box">
+          <h4>📋 Guía de Conexión (Paso a Paso):</h4>
+          <ol class="instructions-steps">
+            <li>Haz clic en el botón <strong>"🌐 1. Seleccionar Cuenta de Google"</strong> y elige tu cuenta.</li>
+            <li>En la lista izquierda del navegador, busca <strong>Drive API v3</strong> y marca la casilla:<br>
+                <code class="code-badge">✅ https://www.googleapis.com/auth/drive.file</code>
+            </li>
+            <li>Haz clic en el botón azul de abajo: <strong>Authorize APIs</strong>.</li>
+            <li>En el panel de la derecha (Step 2), haz clic en el botón azul <strong>Exchange authorization code for tokens</strong>.</li>
+            <li>Copia el código verde de la casilla <strong>Access token</strong> (empieza por <code>ya29...</code>) y pégalo abajo.</li>
+          </ol>
+        </div>
+
         <div class="cloud-token-card">
-          <label class="token-label">Paso 1: Elige tu cuenta de Google</label>
           <button id="btn-open-account-chooser" class="btn btn-secondary btn-lg" style="margin-bottom: 12px;">
             🌐 1. Seleccionar Cuenta de Google (Abrir Navegador)
           </button>
 
-          <label class="token-label">Paso 2: Pega el token generado (en verde)</label>
           <input type="text" id="input-drive-token" class="token-input" placeholder="Pega aquí el Access Token (ya29...)" />
 
           <button id="btn-connect-drive-token" class="btn btn-primary btn-lg" style="margin-top: 10px;">
