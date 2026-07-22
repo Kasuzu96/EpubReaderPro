@@ -317,6 +317,12 @@ function showLibraryScreen() {
   currentBookId = null;
   bookTitleDisplay.textContent = "Mi Biblioteca";
 
+  // Mostrar únicamente botones de la Biblioteca
+  btnOpenFile.style.display = 'inline-flex';
+  if (btnGithubUpdate) btnGithubUpdate.style.display = 'inline-flex';
+  if (btnOpenSyncModal) btnOpenSyncModal.style.display = 'inline-flex';
+
+  // Ocultar herramientas de lectura
   btnBackLibrary.style.display = 'none';
   btnToggleToc.style.display = 'none';
   btnToggleNotes.style.display = 'none';
@@ -496,6 +502,12 @@ async function loadEpubFromPath(filePath, existingCoverB64 = null) {
     libraryScreen.style.display = 'none';
     readerContainer.style.display = 'flex';
 
+    // Ocultar botones de biblioteca al estar en el modo de lectura
+    btnOpenFile.style.display = 'none';
+    if (btnGithubUpdate) btnGithubUpdate.style.display = 'none';
+    if (btnOpenSyncModal) btnOpenSyncModal.style.display = 'none';
+
+    // Mostrar botones propios de la lectura
     btnBackLibrary.style.display = 'inline-flex';
     btnToggleToc.style.display = 'inline-flex';
     btnToggleNotes.style.display = 'inline-flex';
