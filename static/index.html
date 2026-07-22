@@ -234,33 +234,36 @@
   <div id="sync-modal" class="modal-overlay" style="display: none;">
     <div class="modal-card">
       <div class="modal-header">
-        <h3>☁️ Sincronización con Google Drive</h3>
+        <h3>☁️ Sincronización Directa con Google Drive API</h3>
         <button id="btn-close-sync-modal" class="btn-close">&times;</button>
       </div>
       
       <div class="modal-body">
-        <p class="modal-desc">Selecciona tu cuenta de Google Drive para crear automáticamente la carpeta de sincronización y mantener tus libros y marcadores al día en todos tus equipos.</p>
+        <p class="modal-desc">Conecta directamente con tu cuenta de Google Drive usando un Token de Acceso para crear la carpeta <strong>EpubReaderData</strong> en tu nube sin depender de aplicaciones instaladas.</p>
         
         <div class="sync-status-box">
-          <label>Estado de Sincronización:</label>
-          <div id="sync-folder-path" class="sync-folder-path-display">No configurado (Guardando localmente en AppData)</div>
+          <label>Estado de la Conexión en la Nube:</label>
+          <div id="sync-folder-path" class="sync-folder-path-display">No conectado (Guardando localmente en AppData)</div>
         </div>
 
-        <!-- Multi-Account Drive Detector List -->
-        <div class="drive-accounts-section">
-          <label class="section-label">Cuentas y Unidades de Google Drive Detectadas:</label>
-          <div id="drive-accounts-list" class="drive-accounts-list">
-            <p class="empty-msg">Buscando cuentas de Google Drive en este equipo...</p>
-          </div>
+        <!-- Google Drive Direct Token Box -->
+        <div class="cloud-token-card">
+          <label class="token-label">🔑 Conectar con Token de Google Drive:</label>
+
+          <button id="btn-get-google-oauth" class="btn btn-secondary btn-sm" style="margin-bottom: 8px;">
+            🌐 1. Obtener Token de Permiso en Google (Abrir Navegador)
+          </button>
+
+          <input type="text" id="input-drive-token" class="token-input" placeholder="Pega aquí el Token de Google (ya29...)" />
+
+          <button id="btn-connect-drive-token" class="btn btn-primary" style="margin-top: 8px;">
+            ⚡ 2. Conectar y Crear Carpeta en Google Drive
+          </button>
         </div>
 
         <div class="modal-actions-list">
-          <button id="btn-open-drive-web" class="btn btn-secondary">
-            🌐 Abrir Google Drive en el Navegador Web
-          </button>
-
-          <button id="btn-choose-sync-folder" class="btn btn-secondary">
-            📁 Seleccionar otra Carpeta en Google Drive / Equipo...
+          <button id="btn-choose-sync-folder" class="btn btn-secondary btn-sm">
+            📁 O elegir Carpeta de Sincronización Local / Carpeta de Drive en Equipo...
           </button>
         </div>
       </div>
