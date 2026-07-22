@@ -17,6 +17,8 @@ let currentBookId = null;
 let currentBookTitle = "";
 let currentSelectedCfi = null;
 let currentSelectedText = "";
+let currentVisibleCfi = null;
+let currentVisibleTextSnippet = "";
 let currentFontSize = 100;
 let activeColorFilter = 'all';
 let currentLayoutMode = 'single';
@@ -34,6 +36,8 @@ const btnToggleNotes = document.getElementById('btn-toggle-notes');
 const btnCloseNotes = document.getElementById('btn-close-notes');
 const btnExportNotes = document.getElementById('btn-export-notes');
 const btnToggleLayout = document.getElementById('btn-toggle-layout');
+const btnSaveBookmark = document.getElementById('btn-save-bookmark');
+const bookmarkLabelText = document.getElementById('bookmark-label-text');
 const headerHighlighterTools = document.getElementById('header-highlighter-tools');
 
 const btnOpenSyncModal = document.getElementById('btn-open-sync-modal');
@@ -292,6 +296,7 @@ function showLibraryScreen() {
   btnToggleNotes.style.display = 'none';
   btnExportNotes.style.display = 'none';
   btnToggleLayout.style.display = 'none';
+  if (btnSaveBookmark) btnSaveBookmark.style.display = 'none';
   fontControls.style.display = 'none';
   if (headerHighlighterTools) headerHighlighterTools.style.display = 'none';
 
@@ -470,6 +475,7 @@ async function loadEpubFromPath(filePath, existingCoverB64 = null) {
     btnToggleNotes.style.display = 'inline-flex';
     btnExportNotes.style.display = 'inline-flex';
     btnToggleLayout.style.display = 'inline-flex';
+    if (btnSaveBookmark) btnSaveBookmark.style.display = 'inline-flex';
     fontControls.style.display = 'flex';
     if (headerHighlighterTools) headerHighlighterTools.style.display = 'flex';
 
@@ -503,19 +509,47 @@ function setupRenditionEvents() {
   currentRendition.on("relocated", location => {
     if (location && location.start) {
       const cfi = location.start.cfi;
+      currentVisibleCfi = cfi;
+
       const bookData = libraryState.books[currentBookId];
-      if (bookData) {
-        bookData.cfi = cfi;
 
-        if (currentBook.locations && currentBook.locations.length() > 0) {
-          const pct = Math.round((currentBook.locations.percentageFromCfi(cfi) || 0) * 100);
-          bookData.progressPct = pct;
+      if (currentBook.getRange) {
+        currentBook.getRange(cfi).then(range => {
+          if (range) {
+            const txt = range.toString().trim().replace(/\s+/g, ' ');
+            if (txt.length > 0) {
+              currentVisibleTextSnippet = txt.substring(0, 45);
+            }
+          }
+          if (bookData) {
+            bookData.cfi = cfi;
+            if (currentVisibleTextSnippet) {
+              bookData.anchorText = currentVisibleTextSnippet;
+            }
+
+            if (currentBook.locations && currentBook.locations.length() > 0) {
+              const pct = Math.round((currentBook.locations.percentageFromCfi(cfi) || 0) * 100);
+              bookData.progressPct = pct;
+            }
+
+            saveLibraryData();
+          }
+
+          updateProgressDisplay(location);
+        }).catch(() => {
+          if (bookData) {
+            bookData.cfi = cfi;
+            saveLibraryData();
+          }
+          updateProgressDisplay(location);
+        });
+      } else {
+        if (bookData) {
+          bookData.cfi = cfi;
+          saveLibraryData();
         }
-
-        saveLibraryData();
+        updateProgressDisplay(location);
       }
-
-      updateProgressDisplay(location);
     }
   });
 
@@ -531,6 +565,31 @@ function setupRenditionEvents() {
 
   currentRendition.on("click", () => {
     highlightToolbar.style.display = 'none';
+  });
+}
+
+if (btnSaveBookmark) {
+  btnSaveBookmark.addEventListener('click', async () => {
+    if (!currentBookId || !currentVisibleCfi) return;
+
+    const bookData = libraryState.books[currentBookId];
+    if (bookData) {
+      bookData.cfi = currentVisibleCfi;
+      if (currentVisibleTextSnippet) {
+        bookData.anchorText = currentVisibleTextSnippet;
+      }
+      await saveLibraryData();
+
+      if (bookmarkLabelText) bookmarkLabelText.textContent = "✓ Punto Guardado";
+      btnSaveBookmark.style.backgroundColor = "#10b981";
+      btnSaveBookmark.style.color = "white";
+
+      setTimeout(() => {
+        if (bookmarkLabelText) bookmarkLabelText.textContent = "Guardar Punto Exacto";
+        btnSaveBookmark.style.backgroundColor = "";
+        btnSaveBookmark.style.color = "";
+      }, 1800);
+    }
   });
 }
 
@@ -564,7 +623,8 @@ function updateProgressDisplay(location) {
   
   if (location && location.start) {
     const pageNum = location.start.displayed.page || (location.start.index + 1);
-    pageLocationText.textContent = `Progreso: ${pctVal}% | Sección ${pageNum}`;
+    let snippetLabel = currentVisibleTextSnippet ? ` | 📍 "${currentVisibleTextSnippet}..."` : '';
+    pageLocationText.textContent = `Progreso: ${pctVal}% ${snippetLabel} | Sec. ${pageNum}`;
   }
 }
 
