@@ -147,6 +147,26 @@ body {
   border-color: var(--accent-primary);
 }
 
+.btn-google-login {
+  background-color: #ffffff;
+  color: #3c4043;
+  border: 1px solid #dadce0;
+  box-shadow: 0 1px 3px rgba(60,64,67,0.15);
+  font-weight: 600;
+  font-size: 1rem;
+  gap: 12px;
+  padding: 12px 20px;
+}
+.btn-google-login:hover {
+  background-color: #f8f9fa;
+  border-color: #d2e3fc;
+  box-shadow: 0 2px 6px rgba(60,64,67,0.2);
+}
+.google-logo-icon {
+  width: 20px;
+  height: 20px;
+}
+
 .btn-icon-only {
   position: relative;
   width: 36px;
@@ -635,21 +655,11 @@ body {
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
-  padding: 14px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-}
-.token-label { font-size: 0.88rem; font-weight: 700; color: var(--text-main); }
-.token-input {
-  width: 100%;
-  padding: 10px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  background: var(--bg-surface);
-  font-family: monospace;
-  font-size: 0.85rem;
-  color: var(--text-main);
+  align-items: center;
+  justify-content: center;
 }
 
 .modal-actions-list { display: flex; flex-direction: column; gap: 10px; }
