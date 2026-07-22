@@ -147,26 +147,6 @@ body {
   border-color: var(--accent-primary);
 }
 
-.btn-google-login {
-  background-color: #ffffff;
-  color: #3c4043;
-  border: 1px solid #dadce0;
-  box-shadow: 0 1px 3px rgba(60,64,67,0.15);
-  font-weight: 600;
-  font-size: 1rem;
-  gap: 12px;
-  padding: 12px 20px;
-}
-.btn-google-login:hover {
-  background-color: #f8f9fa;
-  border-color: #d2e3fc;
-  box-shadow: 0 2px 6px rgba(60,64,67,0.2);
-}
-.google-logo-icon {
-  width: 20px;
-  height: 20px;
-}
-
 .btn-icon-only {
   position: relative;
   width: 36px;
@@ -630,7 +610,7 @@ body {
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
-  width: 540px;
+  width: 560px;
   max-width: 90vw;
   box-shadow: var(--shadow-lg);
   display: flex;
@@ -651,15 +631,50 @@ body {
 .sync-status-box label { font-size: 0.8rem; font-weight: 700; display: block; margin-bottom: 4px; }
 .sync-folder-path-display { font-size: 0.85rem; word-break: break-all; font-family: monospace; }
 
+.cloud-instructions-box {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+}
+.cloud-instructions-box h4 { font-size: 0.9rem; font-weight: 700; margin-bottom: 8px; color: var(--text-main); }
+
+.instructions-steps {
+  font-size: 0.84rem;
+  color: var(--text-main);
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  line-height: 1.4;
+}
+.code-badge {
+  font-family: monospace;
+  background: var(--bg-header);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.78rem;
+}
+
 .cloud-token-card {
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
-  padding: 18px;
+  padding: 14px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
+  gap: 8px;
+}
+.token-label { font-size: 0.85rem; font-weight: 700; color: var(--text-main); }
+.token-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  font-family: monospace;
+  font-size: 0.85rem;
+  color: var(--text-main);
 }
 
 .modal-actions-list { display: flex; flex-direction: column; gap: 10px; }
