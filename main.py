@@ -43,7 +43,6 @@ class GoogleDriveCloudAPI:
         if not self.access_token:
             return None
         
-        # Buscar la carpeta EpubReaderData existente
         query = urllib.parse.quote("name='EpubReaderData' and mimeType='application/vnd.google-apps.folder' and trashed=false")
         url = f"https://www.googleapis.com/drive/v3/files?q={query}"
         req = urllib.request.Request(url, headers=self._headers())
@@ -58,7 +57,6 @@ class GoogleDriveCloudAPI:
         except Exception as e:
             print("Notice checking remote drive folder:", e)
 
-        # Si no existe, crear la carpeta EpubReaderData
         create_url = "https://www.googleapis.com/drive/v3/files"
         payload = json.dumps({
             "name": "EpubReaderData",
@@ -263,10 +261,7 @@ class EpubApi:
         folder_id = self.cloud_api.set_token(token_str)
         if folder_id:
             self._cloud_token = token_str.strip()
-            
-            # Realizar sincronización y descarga masiva inmediata desde la nube
             downloaded_count = self.pull_all_from_google_drive()
-            
             return {
                 "success": True, 
                 "folder_id": folder_id,
@@ -276,7 +271,7 @@ class EpubApi:
             return {"error": "No se pudo conectar a Google Drive. Verifica que el token copiado esté activo."}
 
     def pull_all_from_google_drive(self):
-        """Descarga completa desde la carpeta existente EpubReaderData en Google Drive hacia el equipo local"""
+        """Descarga completa adaptativa desde la carpeta existente EpubReaderData en Google Drive hacia el equipo local"""
         if not self._cloud_token or not self.cloud_api.folder_id:
             return 0
 
@@ -295,6 +290,11 @@ class EpubApi:
                 local_books = local_data.get("books", {})
 
                 for b_id, b_info in remote_books.items():
+                    # Adaptar siempre la ruta local del libro para la PC actual
+                    orig_path = b_info.get("path", "")
+                    file_name = os.path.basename(orig_path) if orig_path else f"{b_id}.epub"
+                    b_info["path"] = os.path.join(DEFAULT_BOOKS_DIR, file_name)
+
                     if b_id not in local_books:
                         local_books[b_id] = b_info
                     else:
@@ -303,6 +303,7 @@ class EpubApi:
                             local_books[b_id]["cfi"] = b_info.get("cfi")
                         if len(b_info.get("highlights", [])) > len(local_books[b_id].get("highlights", [])):
                             local_books[b_id]["highlights"] = b_info["highlights"]
+                        local_books[b_id]["path"] = b_info["path"]
 
                 local_data["books"] = local_books
                 if "settings" not in local_data:
@@ -323,7 +324,7 @@ class EpubApi:
             if f_name.endswith(".epub"):
                 local_book_path = os.path.join(DEFAULT_BOOKS_DIR, f_name)
                 if not os.path.exists(local_book_path):
-                    print(f"Descargando libro desde Google Drive: {f_name}...")
+                    print(f"Descargando libro desde Google Drive por demanda: {f_name}...")
                     epub_bytes = self.cloud_api.download_file_from_drive(f_name)
                     if epub_bytes:
                         with open(local_book_path, "wb") as f_out:
@@ -421,35 +422,32 @@ class EpubApi:
 
     def read_epub_base64(self, file_path):
         try:
-            if not os.path.isabs(file_path):
-                file_path = os.path.join(DEFAULT_BOOKS_DIR, file_path)
+            file_name = os.path.basename(file_path)
+            actual_path = os.path.join(DEFAULT_BOOKS_DIR, file_name)
 
-            if not os.path.exists(file_path):
-                if self._sync_folder:
-                    alt_path = os.path.join(self._sync_folder, "books", os.path.basename(file_path))
-                    if os.path.exists(alt_path):
-                        shutil.copy2(alt_path, file_path)
-
-            if not os.path.exists(file_path):
+            # 1. Si no existe ni en la ruta guardada ni en el directorio de libros, buscarlo y descargarlo de Google Drive por demanda
+            if not os.path.exists(actual_path) and not os.path.exists(file_path):
                 if self._cloud_token and self.cloud_api.folder_id:
-                    file_name = os.path.basename(file_path)
+                    print(f"Descargando archivo desde Google Drive por demanda: {file_name}...")
                     cloud_bytes = self.cloud_api.download_file_from_drive(file_name)
                     if cloud_bytes:
-                        with open(file_path, "wb") as f:
+                        with open(actual_path, "wb") as f:
                             f.write(cloud_bytes)
 
-            if not os.path.exists(file_path):
-                return {"error": f"El archivo no existe en: {file_path}"}
+            final_path = actual_path if os.path.exists(actual_path) else file_path
 
-            with open(file_path, "rb") as f:
+            if not os.path.exists(final_path):
+                return {"error": f"El archivo del libro no se encuentra en el equipo ni en Google Drive: {file_name}"}
+
+            with open(final_path, "rb") as f:
                 encoded = base64.b64encode(f.read()).decode("utf-8")
             
-            cover_b64 = extract_epub_cover_base64(file_path)
+            cover_b64 = extract_epub_cover_base64(final_path)
 
             return {
                 "success": True,
-                "file_name": os.path.basename(file_path),
-                "file_path": file_path,
+                "file_name": file_name,
+                "file_path": final_path,
                 "cover_b64": cover_b64,
                 "data": encoded
             }
