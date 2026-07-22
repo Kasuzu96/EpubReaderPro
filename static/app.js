@@ -39,11 +39,11 @@ const btnOpenSyncModal = document.getElementById('btn-open-sync-modal');
 const btnCloseSyncModal = document.getElementById('btn-close-sync-modal');
 const btnDoneSync = document.getElementById('btn-done-sync');
 const btnOpenDriveWeb = document.getElementById('btn-open-drive-web');
-const btnAutoConnectDrive = document.getElementById('btn-auto-connect-drive');
 const btnChooseSyncFolder = document.getElementById('btn-choose-sync-folder');
 const syncModal = document.getElementById('sync-modal');
 const syncFolderPath = document.getElementById('sync-folder-path');
 const syncBtnLabel = document.getElementById('sync-btn-label');
+const driveAccountsList = document.getElementById('drive-accounts-list');
 
 const btnFontInc = document.getElementById('btn-font-inc');
 const btnFontDec = document.getElementById('btn-font-dec');
@@ -110,7 +110,6 @@ async function loadLibraryData() {
 function restoreUserSettings() {
   const settings = libraryState.settings || {};
 
-  // Restore Theme
   if (settings.theme) {
     document.body.className = settings.theme;
     document.querySelectorAll('.theme-btn').forEach(btn => {
@@ -122,13 +121,11 @@ function restoreUserSettings() {
     });
   }
 
-  // Restore Font Size
   if (settings.fontSize) {
     currentFontSize = settings.fontSize;
     fontSizeVal.textContent = currentFontSize + '%';
   }
 
-  // Restore Layout Mode
   if (settings.layoutMode) {
     currentLayoutMode = settings.layoutMode;
     const label = document.getElementById('layout-label-text');
@@ -144,7 +141,6 @@ function restoreUserSettings() {
     }
   }
 
-  // Restore Sync Display
   if (settings.syncFolder) {
     updateSyncDisplay(settings.syncFolder);
   } else {
@@ -155,7 +151,7 @@ function restoreUserSettings() {
 function updateSyncDisplay(folderPath) {
   if (folderPath) {
     syncBtnLabel.textContent = "Drive Activo ✓";
-    syncFolderPath.textContent = folderPath;
+    syncFolderPath.textContent = "✓ Sincronizando en: " + folderPath;
     syncFolderPath.style.color = "var(--accent-primary)";
   } else {
     syncBtnLabel.textContent = "Sincronizar Drive";
@@ -174,12 +170,65 @@ async function saveLibraryData() {
   }
 }
 
-// Google Drive Sync Modal & Controls
+// Google Drive Sync Modal & Multi-Account Selection
 btnOpenSyncModal.addEventListener('click', () => {
   syncModal.style.display = 'flex';
+  loadDetectedDriveAccounts();
 });
+
 btnCloseSyncModal.addEventListener('click', () => syncModal.style.display = 'none');
 btnDoneSync.addEventListener('click', () => syncModal.style.display = 'none');
+
+async function loadDetectedDriveAccounts() {
+  if (!driveAccountsList) return;
+  driveAccountsList.innerHTML = '<p class="empty-msg">Escaneando unidades y cuentas de Google Drive...</p>';
+
+  try {
+    if (window.pywebview && window.pywebview.api) {
+      const accounts = await window.pywebview.api.get_detected_drive_accounts();
+      
+      driveAccountsList.innerHTML = '';
+      if (!accounts || accounts.length === 0) {
+        driveAccountsList.innerHTML = `
+          <p class="empty-msg">
+            No se detectaron unidades de Google Drive montadas.<br>
+            Puedes abrir Google Drive en tu navegador o seleccionar una carpeta local manualmente.
+          </p>
+        `;
+        return;
+      }
+
+      accounts.forEach(acc => {
+        const card = document.createElement('div');
+        card.className = 'drive-account-card';
+        card.innerHTML = `
+          <div class="drive-account-info">
+            <div class="drive-account-name">☁️ ${escapeHtml(acc.name)}</div>
+            <div class="drive-account-path">${escapeHtml(acc.path)}</div>
+          </div>
+          <div class="drive-select-badge">Conectar &rarr;</div>
+        `;
+
+        card.addEventListener('click', async () => {
+          const res = await window.pywebview.api.set_sync_account_path(acc.path);
+          if (res.success) {
+            libraryState.settings.syncFolder = res.sync_folder;
+            saveLibraryData();
+            updateSyncDisplay(res.sync_folder);
+            alert(`¡Conectado exitosamente a:\n${acc.name}!\nSe ha creado la carpeta "EpubReaderData" automáticamente.`);
+            loadLibraryData();
+          } else {
+            alert("Error al activar sincronización: " + res.error);
+          }
+        });
+
+        driveAccountsList.appendChild(card);
+      });
+    }
+  } catch (err) {
+    driveAccountsList.innerHTML = '<p class="empty-msg">Error al detectar cuentas.</p>';
+  }
+}
 
 if (btnOpenDriveWeb) {
   btnOpenDriveWeb.addEventListener('click', async () => {
@@ -188,21 +237,6 @@ if (btnOpenDriveWeb) {
     }
   });
 }
-
-btnAutoConnectDrive.addEventListener('click', async () => {
-  if (window.pywebview && window.pywebview.api) {
-    const res = await window.pywebview.api.auto_connect_google_drive();
-    if (res.success) {
-      libraryState.settings.syncFolder = res.sync_folder;
-      saveLibraryData();
-      updateSyncDisplay(res.sync_folder);
-      alert(`¡Conectado exitosamente con tu Google Drive!\nCarpeta: ${res.sync_folder}`);
-      loadLibraryData();
-    } else {
-      alert(res.error || "No se pudo conectar automáticamente. Elige la carpeta manualmente.");
-    }
-  }
-});
 
 btnChooseSyncFolder.addEventListener('click', async () => {
   if (window.pywebview && window.pywebview.api) {
@@ -235,7 +269,6 @@ async function triggerImportFile() {
 btnOpenFile.addEventListener('click', triggerImportFile);
 if (btnWelcomeOpen) btnWelcomeOpen.addEventListener('click', triggerImportFile);
 
-// Switch Views
 function showLibraryScreen() {
   if (currentBook) {
     try { currentBook.destroy(); } catch(e) {}
@@ -267,7 +300,6 @@ function showLibraryScreen() {
 btnBackLibrary.addEventListener('click', showLibraryScreen);
 brandLogo.addEventListener('click', showLibraryScreen);
 
-// Render Library Grid Screen with Large Covers
 function renderLibraryGrid() {
   libraryGrid.innerHTML = '';
 
@@ -339,7 +371,6 @@ function renderLibraryGrid() {
   });
 }
 
-// Load and Display EPUB Book
 async function loadEpubFromPath(filePath, existingCoverB64 = null) {
   try {
     pageLocationText.textContent = "Abriendo libro y cargando portada...";
@@ -450,7 +481,6 @@ async function loadEpubFromPath(filePath, existingCoverB64 = null) {
   }
 }
 
-// Setup Reader Rendition Events
 function setupRenditionEvents() {
   if (!currentRendition) return;
 
@@ -492,7 +522,6 @@ function setupRenditionEvents() {
   });
 }
 
-// Apply Saved Highlights inside Iframe
 function applySavedHighlightsToViewer() {
   if (!currentRendition || !currentBookId) return;
   const bookData = libraryState.books[currentBookId];
@@ -507,7 +536,6 @@ function applySavedHighlightsToViewer() {
   });
 }
 
-// Progress Display Updater
 function updateProgressDisplay(location) {
   if (!currentRendition || !currentBook) return;
   
@@ -528,7 +556,6 @@ function updateProgressDisplay(location) {
   }
 }
 
-// Navigation Arrows & Keyboard
 btnPrevPage.addEventListener('click', () => {
   if (currentRendition) currentRendition.prev();
 });
@@ -544,7 +571,6 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// Font Size Controls (Auto-saves setting!)
 btnFontInc.addEventListener('click', () => {
   if (currentFontSize < 180) {
     currentFontSize += 10;
@@ -567,7 +593,6 @@ btnFontDec.addEventListener('click', () => {
   }
 });
 
-// Layout Switcher (1 Page vs 2 Pages - Auto-saves setting!)
 btnToggleLayout.addEventListener('click', () => {
   const label = document.getElementById('layout-label-text');
   if (currentLayoutMode === 'single') {
@@ -611,7 +636,6 @@ btnToggleLayout.addEventListener('click', () => {
   }
 });
 
-// Theme Switcher Logic (Auto-saves setting!)
 document.querySelectorAll('.theme-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.theme-btn').forEach(b => b.classList.remove('active'));
@@ -645,7 +669,6 @@ function applyCurrentThemeToRendition() {
   currentRendition.themes.select('activeTheme');
 }
 
-// Table of Contents Drawer
 function renderToc(tocItems) {
   tocContainer.innerHTML = '';
   if (!tocItems || tocItems.length === 0) {
@@ -668,7 +691,6 @@ function renderToc(tocItems) {
 btnToggleToc.addEventListener('click', () => tocSidebar.classList.toggle('collapsed'));
 btnCloseToc.addEventListener('click', () => tocSidebar.classList.add('collapsed'));
 
-// Highlighting & Note Action Buttons
 document.querySelectorAll('.color-dot').forEach(dot => {
   dot.addEventListener('click', () => {
     const color = dot.getAttribute('data-color');
@@ -716,7 +738,6 @@ function createHighlight(color) {
   currentSelectedText = "";
 }
 
-// Notes Sidebar List Renderer
 function renderNotesList() {
   notesListContainer.innerHTML = '';
   if (!currentBookId || !libraryState.books[currentBookId]) {
@@ -783,7 +804,6 @@ function deleteHighlight(id, cfi) {
   renderNotesList();
 }
 
-// Color Filters
 document.querySelectorAll('.filter-pill').forEach(pill => {
   pill.addEventListener('click', () => {
     document.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
@@ -796,7 +816,6 @@ document.querySelectorAll('.filter-pill').forEach(pill => {
 btnToggleNotes.addEventListener('click', () => notesSidebar.classList.toggle('collapsed'));
 btnCloseNotes.addEventListener('click', () => notesSidebar.classList.add('collapsed'));
 
-// Export Notes Modal
 btnExportNotes.addEventListener('click', openExportModal);
 btnCloseExportModal.addEventListener('click', () => exportModal.style.display = 'none');
 
