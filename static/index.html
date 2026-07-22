@@ -239,24 +239,28 @@
       </div>
       
       <div class="modal-body">
-        <p class="modal-desc">Sincroniza tus libros, marcadores y notas entre múltiples computadoras usando tu cuenta de Google Drive sin necesidad de servidores adicionales.</p>
+        <p class="modal-desc">Selecciona tu cuenta de Google Drive para crear automáticamente la carpeta de sincronización y mantener tus libros y marcadores al día en todos tus equipos.</p>
         
         <div class="sync-status-box">
-          <label>Carpeta de Sincronización Actual:</label>
-          <div id="sync-folder-path" class="sync-folder-path-display">No configurado (Guardando localmente)</div>
+          <label>Estado de Sincronización:</label>
+          <div id="sync-folder-path" class="sync-folder-path-display">No configurado (Guardando localmente en AppData)</div>
+        </div>
+
+        <!-- Multi-Account Drive Detector List -->
+        <div class="drive-accounts-section">
+          <label class="section-label">Cuentas y Unidades de Google Drive Detectadas:</label>
+          <div id="drive-accounts-list" class="drive-accounts-list">
+            <p class="empty-msg">Buscando cuentas de Google Drive en este equipo...</p>
+          </div>
         </div>
 
         <div class="modal-actions-list">
-          <button id="btn-open-drive-web" class="btn btn-secondary btn-lg">
+          <button id="btn-open-drive-web" class="btn btn-secondary">
             🌐 Abrir Google Drive en el Navegador Web
           </button>
 
-          <button id="btn-auto-connect-drive" class="btn btn-primary btn-lg">
-            ⚡ Detección Automática de Google Drive en Windows
-          </button>
-          
-          <button id="btn-choose-sync-folder" class="btn btn-secondary btn-lg">
-            📁 Seleccionar Carpeta en Google Drive / Equipo...
+          <button id="btn-choose-sync-folder" class="btn btn-secondary">
+            📁 Seleccionar otra Carpeta en Google Drive / Equipo...
           </button>
         </div>
       </div>
