@@ -5,6 +5,7 @@ import time
 import base64
 import shutil
 import zipfile
+import subprocess
 import urllib.request
 import urllib.parse
 import urllib.error
@@ -20,6 +21,9 @@ os.makedirs(USER_APPDATA_DIR, exist_ok=True)
 DEFAULT_DATA_FILE = os.path.join(USER_APPDATA_DIR, "library_data.json")
 DEFAULT_BOOKS_DIR = os.path.join(USER_APPDATA_DIR, "books")
 os.makedirs(DEFAULT_BOOKS_DIR, exist_ok=True)
+
+GITHUB_REPO_OWNER = "Kasuzu96"
+GITHUB_REPO_NAME = "EpubReaderPro"
 
 class GoogleDriveCloudAPI:
     """Cliente directo de la API v3 de Google Drive para sincronización en la nube"""
@@ -52,7 +56,6 @@ class GoogleDriveCloudAPI:
                 files = data.get("files", [])
                 if files:
                     self.folder_id = files[0]["id"]
-                    print("Carpeta existente EpubReaderData encontrada en Drive ID:", self.folder_id)
                     return self.folder_id
         except Exception as e:
             print("Notice checking remote drive folder:", e)
@@ -69,7 +72,6 @@ class GoogleDriveCloudAPI:
             with urllib.request.urlopen(req_create) as resp:
                 data = json.loads(resp.read().decode('utf-8'))
                 self.folder_id = data.get("id")
-                print("Nueva carpeta EpubReaderData creada en Drive ID:", self.folder_id)
                 return self.folder_id
         except Exception as e:
             print("Notice creating remote drive folder:", e)
@@ -248,6 +250,60 @@ class EpubApi:
             except Exception:
                 pass
 
+    def check_and_update_from_github(self):
+        """Descarga e instala en 1-clic la versión más reciente del código o ejecutable desde GitHub"""
+        try:
+            print("Comprobando actualizaciones en GitHub...")
+            url = f"https://github.com/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}/archive/refs/heads/main.zip"
+            
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            req = urllib.request.Request(url, headers=headers)
+            
+            temp_zip = os.path.join(USER_APPDATA_DIR, "latest_update.zip")
+            with urllib.request.urlopen(req) as resp, open(temp_zip, "wb") as f_out:
+                f_out.write(resp.read())
+
+            temp_extract_dir = os.path.join(USER_APPDATA_DIR, "update_extracted")
+            if os.path.exists(temp_extract_dir):
+                shutil.rmtree(temp_extract_dir, ignore_errors=True)
+            
+            with zipfile.ZipFile(temp_zip, 'r') as z:
+                z.extractall(temp_extract_dir)
+
+            extracted_subdirs = [d for d in os.listdir(temp_extract_dir) if os.path.isdir(os.path.join(temp_extract_dir, d))]
+            if not extracted_subdirs:
+                return {"error": "El paquete descargado de GitHub no contiene carpetas válidas."}
+
+            repo_root = os.path.join(temp_extract_dir, extracted_subdirs[0])
+            
+            # Actualizar archivos estáticos y scripts locales
+            target_dir = APP_DIR
+            for root, dirs, files in os.walk(repo_root):
+                rel_path = os.path.relpath(root, repo_root)
+                dest_dir = os.path.join(target_dir, rel_path) if rel_path != "." else target_dir
+                os.makedirs(dest_dir, exist_ok=True)
+                for file_name in files:
+                    if file_name.endswith(".zip") or file_name.endswith(".exe"):
+                        continue
+                    src_file = os.path.join(root, file_name)
+                    dest_file = os.path.join(dest_dir, file_name)
+                    shutil.copy2(src_file, dest_file)
+
+            return {"success": True, "message": "¡Programa actualizado correctamente a la última versión de GitHub! Reiniciando aplicativo..."}
+        except Exception as e:
+            return {"error": f"Error al actualizar desde GitHub: {str(e)}"}
+
+    def restart_application(self):
+        """Reinicia el programa inmediatamente"""
+        try:
+            python = sys.executable
+            subprocess.Popen([python] + sys.argv)
+            if self._window:
+                self._window.destroy()
+            sys.exit()
+        except Exception:
+            pass
+
     def open_google_account_chooser(self):
         """Abre la pantalla oficial de Selección de Cuenta de Google (Account Chooser)"""
         url = "https://accounts.google.com/AccountChooser?continue=https%3A%2F%2Fdevelopers.google.com%2Foauthplayground%2F%3Fscopes%3Dhttps%253A%252F%252Fwww.googleapis.com%252Fauth%252Fdrive.file"
@@ -275,7 +331,6 @@ class EpubApi:
         if not self._cloud_token or not self.cloud_api.folder_id:
             return 0
 
-        # 1. Descargar y fusionar library_data.json
         remote_bytes = self.cloud_api.download_file_from_drive("library_data.json")
         if remote_bytes:
             try:
@@ -290,7 +345,6 @@ class EpubApi:
                 local_books = local_data.get("books", {})
 
                 for b_id, b_info in remote_books.items():
-                    # Adaptar siempre la ruta local del libro para la PC actual
                     orig_path = b_info.get("path", "")
                     file_name = os.path.basename(orig_path) if orig_path else f"{b_id}.epub"
                     b_info["path"] = os.path.join(DEFAULT_BOOKS_DIR, file_name)
@@ -301,6 +355,7 @@ class EpubApi:
                         if b_info.get("progressPct", 0) > local_books[b_id].get("progressPct", 0):
                             local_books[b_id]["progressPct"] = b_info["progressPct"]
                             local_books[b_id]["cfi"] = b_info.get("cfi")
+                            local_books[b_id]["anchorText"] = b_info.get("anchorText")
                         if len(b_info.get("highlights", [])) > len(local_books[b_id].get("highlights", [])):
                             local_books[b_id]["highlights"] = b_info["highlights"]
                         local_books[b_id]["path"] = b_info["path"]
@@ -316,7 +371,6 @@ class EpubApi:
             except Exception as e:
                 print("Error fusionando datos remotos:", e)
 
-        # 2. Descargar todos los libros EPUB presentes en la carpeta de Google Drive
         downloaded = 0
         drive_files = self.cloud_api.list_files_in_folder()
         for f_item in drive_files:
@@ -425,7 +479,6 @@ class EpubApi:
             file_name = os.path.basename(file_path)
             actual_path = os.path.join(DEFAULT_BOOKS_DIR, file_name)
 
-            # 1. Si no existe ni en la ruta guardada ni en el directorio de libros, buscarlo y descargarlo de Google Drive por demanda
             if not os.path.exists(actual_path) and not os.path.exists(file_path):
                 if self._cloud_token and self.cloud_api.folder_id:
                     print(f"Descargando archivo desde Google Drive por demanda: {file_name}...")
