@@ -22,7 +22,7 @@ DEFAULT_BOOKS_DIR = os.path.join(USER_APPDATA_DIR, "books")
 os.makedirs(DEFAULT_BOOKS_DIR, exist_ok=True)
 
 class GoogleDriveCloudAPI:
-    """Cliente directo de la API v3 de Google Drive para sincronización en la nube sin necesidad de app de escritorio"""
+    """Cliente directo de la API v3 de Google Drive para sincronización en la nube"""
     def __init__(self, access_token=None):
         self.access_token = access_token
         self.folder_id = None
@@ -40,7 +40,6 @@ class GoogleDriveCloudAPI:
         }
 
     def ensure_remote_folder(self):
-        """Busca o crea la carpeta 'EpubReaderData' directamente en la nube de Google Drive"""
         if not self.access_token:
             return None
         
@@ -75,7 +74,6 @@ class GoogleDriveCloudAPI:
             return None
 
     def upload_file_to_drive(self, file_name, file_bytes, mime_type="application/octet-stream"):
-        """Sube o actualiza un archivo en la carpeta EpubReaderData de Google Drive Cloud"""
         if not self.access_token or not self.folder_id:
             return False
         
@@ -124,7 +122,6 @@ class GoogleDriveCloudAPI:
             return False
 
     def download_file_from_drive(self, file_name):
-        """Descarga un archivo desde la carpeta EpubReaderData en Google Drive Cloud"""
         if not self.access_token or not self.folder_id:
             return None
         
@@ -153,7 +150,6 @@ class GoogleDriveCloudAPI:
             return None
 
 def extract_epub_cover_base64(epub_path):
-    """Extrae la imagen de portada de un archivo .epub y devuelve Data URL Base64"""
     try:
         with zipfile.ZipFile(epub_path, 'r') as z:
             if 'META-INF/container.xml' not in z.namelist():
@@ -236,7 +232,6 @@ class EpubApi:
                 pass
 
     def connect_google_cloud_token(self, token_str):
-        """Conecta directamente con la API en la nube de Google Drive usando el token proporcionado"""
         if not token_str or not token_str.strip():
             return {"error": "Por favor ingresa un token válido."}
         
@@ -246,19 +241,18 @@ class EpubApi:
             self._sync_to_cloud_api()
             return {"success": True, "folder_id": folder_id}
         else:
-            return {"error": "No se pudo conectar a Google Drive con este token. Verifica que el token tenga permisos de Google Drive API."}
+            return {"error": "No se pudo conectar a Google Drive con este token. Verifica que el token sea correcto y activo."}
 
     def open_google_oauth_page(self):
-        """Abre la página para obtener un Token de Google Drive de manera fácil"""
-        webbrowser.open("https://developers.google.com/oauthplayground/?scopes=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.file")
+        """Abre la página para escoger la cuenta de Google y obtener el token pre-configurado"""
+        url = "https://developers.google.com/oauthplayground/?scopes=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.file&prompt=select_account"
+        webbrowser.open(url)
         return {"success": True}
 
     def _sync_to_cloud_api(self):
-        """Sincroniza datos y libros hacia y desde Google Drive Cloud API"""
         if not self._cloud_token or not self.cloud_api.folder_id:
             return
 
-        # 1. Intentar descargar biblioteca remota
         remote_bytes = self.cloud_api.download_file_from_drive("library_data.json")
         if remote_bytes:
             try:
@@ -277,7 +271,6 @@ class EpubApi:
             except Exception as e:
                 print("Notice merging remote cloud data:", e)
 
-        # 2. Subir library_data.json actual a la nube
         if os.path.exists(DEFAULT_DATA_FILE):
             with open(DEFAULT_DATA_FILE, "rb") as f:
                 self.cloud_api.upload_file_to_drive("library_data.json", f.read(), "application/json")
@@ -347,7 +340,6 @@ class EpubApi:
                 os.makedirs(sync_books, exist_ok=True)
                 shutil.copy2(dest_path, os.path.join(sync_books, file_name))
 
-            # Subir también a la nube si API activa
             if self._cloud_token and self.cloud_api.folder_id:
                 with open(dest_path, "rb") as f:
                     self.cloud_api.upload_file_to_drive(file_name, f.read(), "application/epub+zip")
@@ -372,7 +364,6 @@ class EpubApi:
                         shutil.copy2(alt_path, file_path)
 
             if not os.path.exists(file_path):
-                # Buscar en la nube si API activa
                 if self._cloud_token and self.cloud_api.folder_id:
                     file_name = os.path.basename(file_path)
                     cloud_bytes = self.cloud_api.download_file_from_drive(file_name)
@@ -423,7 +414,6 @@ class EpubApi:
                 with open(sync_file, "w", encoding="utf-8") as f:
                     json.dump(data, f, ensure_ascii=False, indent=2)
 
-            # Subir a Google Drive Cloud API si token activo
             if self._cloud_token and self.cloud_api.folder_id:
                 json_bytes = json.dumps(data, ensure_ascii=False, indent=2).encode('utf-8')
                 self.cloud_api.upload_file_to_drive("library_data.json", json_bytes, "application/json")
