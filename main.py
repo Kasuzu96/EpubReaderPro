@@ -11,6 +11,8 @@ import urllib.error
 import webbrowser
 import xml.etree.ElementTree as ET
 import webview
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -20,6 +22,10 @@ os.makedirs(USER_APPDATA_DIR, exist_ok=True)
 DEFAULT_DATA_FILE = os.path.join(USER_APPDATA_DIR, "library_data.json")
 DEFAULT_BOOKS_DIR = os.path.join(USER_APPDATA_DIR, "books")
 os.makedirs(DEFAULT_BOOKS_DIR, exist_ok=True)
+
+# Servidor Local HTTP para capturar el Inicio de Sesión de Google sin copiar tokens manualmente
+OAUTH_PORT = 8585
+GOOGLE_CLIENT_ID = "878652033621-rqqh3hll59k5rdrdkhh75g2q321r0u5a.apps.googleusercontent.com"
 
 class GoogleDriveCloudAPI:
     """Cliente directo de la API v3 de Google Drive para sincronización en la nube"""
@@ -206,16 +212,89 @@ def extract_epub_cover_base64(epub_path):
         print("Extract cover notice:", e)
     return None
 
+class OAuthCallbackHandler(BaseHTTPRequestHandler):
+    api_instance = None
+    
+    def do_GET(self):
+        parsed = urllib.parse.urlparse(self.path)
+        
+        if parsed.path == "/save_token":
+            qs = urllib.parse.parse_qs(parsed.query)
+            token = qs.get("token", [None])[0]
+            if token and OAuthCallbackHandler.api_instance:
+                OAuthCallbackHandler.api_instance.connect_google_cloud_token(token)
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(b'{"status":"ok"}')
+            return
+
+        html_response = """
+        <!DOCTYPE html>
+        <html lang="es">
+        <head>
+            <meta charset="utf-8">
+            <title>Conexión Exitosa con Google Drive</title>
+            <style>
+                body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; text-align: center; padding: 60px 20px; background: #f4efe6; color: #2c251e; }
+                .card { background: white; padding: 40px; border-radius: 16px; display: inline-block; box-shadow: 0 10px 30px rgba(0,0,0,0.1); max-width: 480px; }
+                h1 { color: #8c6d46; font-size: 1.6rem; margin-bottom: 12px; }
+                p { font-size: 1rem; color: #666; line-height: 1.5; }
+                .icon { font-size: 3.5rem; margin-bottom: 16px; }
+            </style>
+        </head>
+        <body>
+            <div class="card">
+                <div class="icon">☁️🎉</div>
+                <h1>¡Conexión Exitosa con Google Drive!</h1>
+                <p>Tu cuenta de Google ha sido vinculada correctamente con <strong>EpubReaderPro</strong>.</p>
+                <p>Se ha creado la carpeta <strong>EpubReaderData</strong> en tu nube. Puedes cerrar esta pestaña y volver a tu aplicativo.</p>
+            </div>
+            <script>
+                const hash = window.location.hash.substring(1);
+                const params = new URLSearchParams(hash || window.location.search);
+                const token = params.get('access_token');
+                if (token) {
+                    fetch('/save_token?token=' + encodeURIComponent(token));
+                }
+            </script>
+        </body>
+        </html>
+        """
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html; charset=utf-8')
+        self.end_headers()
+        self.wfile.write(html_response.encode('utf-8'))
+
+    def log_message(self, format, *args):
+        return
+
 class EpubApi:
     def __init__(self):
         self._window = None
         self._sync_folder = None
         self._cloud_token = None
         self.cloud_api = GoogleDriveCloudAPI()
+        self.local_server = None
+        OAuthCallbackHandler.api_instance = self
+        self._start_local_oauth_server()
         self._init_data_store()
 
     def set_window(self, window):
         self._window = window
+
+    def _start_local_oauth_server(self):
+        """Inicia un servidor local HTTP en segundo plano para recibir el login de Google automáticamente"""
+        def run_server():
+            try:
+                server = HTTPServer(('127.0.0.1', OAUTH_PORT), OAuthCallbackHandler)
+                self.local_server = server
+                server.serve_forever()
+            except Exception as e:
+                print("Notice local OAuth server:", e)
+        
+        t = threading.Thread(target=run_server, daemon=True)
+        t.start()
 
     def _init_data_store(self):
         if os.path.exists(DEFAULT_DATA_FILE):
@@ -231,6 +310,20 @@ class EpubApi:
             except Exception:
                 pass
 
+    def start_google_one_click_login(self):
+        """Abre la pantalla de Inicio de Sesión de Google oficial para seleccionar cuenta con 1 solo clic"""
+        redirect_uri = f"http://127.0.0.1:{OAUTH_PORT}/callback"
+        oauth_url = (
+            f"https://accounts.google.com/o/oauth2/v2/auth?"
+            f"client_id={GOOGLE_CLIENT_ID}&"
+            f"redirect_uri={urllib.parse.quote(redirect_uri)}&"
+            f"response_type=token&"
+            f"scope={urllib.parse.quote('https://www.googleapis.com/auth/drive.file email profile')}&"
+            f"prompt=select_account"
+        )
+        webbrowser.open(oauth_url)
+        return {"success": True}
+
     def connect_google_cloud_token(self, token_str):
         if not token_str or not token_str.strip():
             return {"error": "Por favor ingresa un token válido."}
@@ -239,15 +332,11 @@ class EpubApi:
         if folder_id:
             self._cloud_token = token_str.strip()
             self._sync_to_cloud_api()
+            if self._window:
+                self._window.evaluate_js(f"onGoogleLoginSuccess('{self._cloud_token}')")
             return {"success": True, "folder_id": folder_id}
         else:
-            return {"error": "No se pudo conectar a Google Drive con este token. Verifica que el token sea correcto y activo."}
-
-    def open_google_oauth_page(self):
-        """Abre la página para escoger la cuenta de Google y obtener el token pre-configurado"""
-        url = "https://developers.google.com/oauthplayground/?scopes=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.file&prompt=select_account"
-        webbrowser.open(url)
-        return {"success": True}
+            return {"error": "No se pudo conectar a Google Drive con este token."}
 
     def _sync_to_cloud_api(self):
         if not self._cloud_token or not self.cloud_api.folder_id:
