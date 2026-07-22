@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lector EPUB - Biblioteca, Marcadores y Notas</title>
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Merriweather:ital,wght@0,300;0,400;0,700;1,300&display=swap" rel="stylesheet">
+  
+  <!-- Offline Libraries -->
+  <script src="lib/jszip.min.js"></script>
+  <script src="lib/epub.min.js"></script>
+
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="theme-paper">
+
+  <!-- Top App Navigation -->
+  <header class="app-header">
+    <div class="header-left">
+      <div class="brand" id="brand-logo" style="cursor: pointer;">
+        <svg class="brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+        </svg>
+        <span class="brand-title">EpubReader<span class="brand-accent">Pro</span></span>
+      </div>
+
+      <!-- Back to Library Button -->
+      <button id="btn-back-library" class="btn btn-secondary" style="display: none;" title="Volver a la Biblioteca">
+        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="19" y1="12" x2="5" y2="12"/>
+          <polyline points="12 19 5 12 12 5"/>
+        </svg>
+        Biblioteca
+      </button>
+
+      <button id="btn-open-file" class="btn btn-primary">
+        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+        Importar Libro
+      </button>
+
+      <!-- Google Drive Sync Button -->
+      <button id="btn-open-sync-modal" class="btn btn-secondary" title="Configurar Sincronización con Google Drive">
+        ☁️ <span id="sync-btn-label">Sincronizar Drive</span>
+      </button>
+
+      <button id="btn-toggle-toc" class="btn btn-icon-only" style="display: none;" title="Tabla de contenidos">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="8" y1="6" x2="21" y2="6"/>
+          <line x1="8" y1="12" x2="21" y2="12"/>
+          <line x1="8" y1="18" x2="21" y2="18"/>
+          <line x1="3" y1="6" x2="3.01" y2="6"/>
+          <line x1="3" y1="12" x2="3.01" y2="12"/>
+          <line x1="3" y1="18" x2="3.01" y2="18"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="header-center" id="book-title-display">
+      <span class="current-book-name">Mi Biblioteca</span>
+    </div>
+
+    <div class="header-right">
+      <!-- Always Visible Highlighter Tool in Header -->
+      <div class="control-group header-highlighter" id="header-highlighter-tools" style="display: none;" title="Herramienta de Subrayado">
+        <span class="control-label">✏️ Subrayar:</span>
+        <button class="color-dot yellow active" data-color="#fce83a" title="Subrayar Amarillo"></button>
+        <button class="color-dot green" data-color="#5cdb95" title="Subrayar Verde"></button>
+        <button class="color-dot blue" data-color="#38b6ff" title="Subrayar Azul"></button>
+        <button class="color-dot pink" data-color="#ff75a0" title="Subrayar Rosa"></button>
+      </div>
+
+      <!-- Layout Mode Switcher (Single Page vs Double Spread) -->
+      <button id="btn-toggle-layout" class="btn btn-secondary btn-sm" style="display: none;" title="Cambiar a vista de 1 o 2 páginas">
+        📖 <span id="layout-label-text">1 Página</span>
+      </button>
+
+      <!-- Reading Controls -->
+      <div class="control-group" id="font-controls" style="display: none;">
+        <button id="btn-font-dec" class="btn btn-sm" title="Disminuir letra">A-</button>
+        <span id="font-size-val" class="font-size-indicator">100%</span>
+        <button id="btn-font-inc" class="btn btn-sm" title="Aumentar letra">A+</button>
+      </div>
+
+      <!-- Theme Selector -->
+      <div class="theme-selector">
+        <button class="theme-btn theme-paper-btn active" data-theme="theme-paper" title="Modo Hoja de Libro (Por defecto)"></button>
+        <button class="theme-btn theme-white-btn" data-theme="theme-white" title="Modo Blanco Puro"></button>
+        <button class="theme-btn theme-sepia-btn" data-theme="theme-sepia" title="Modo Sepia"></button>
+        <button class="theme-btn theme-dark-btn" data-theme="theme-dark" title="Modo Oscuro"></button>
+      </div>
+
+      <!-- Actions -->
+      <button id="btn-export-notes" class="btn btn-secondary" style="display: none;">
+        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Exportar Notas
+      </button>
+
+      <button id="btn-toggle-notes" class="btn btn-icon-only" style="display: none;" title="Ver Panel de Notas">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 20h9"/>
+          <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+        </svg>
+        <span id="notes-badge" class="badge">0</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main View Area -->
+  <div class="app-body">
+
+    <!-- Table of Contents Drawer -->
+    <aside class="toc-sidebar collapsed" id="toc-sidebar">
+      <div class="sidebar-header">
+        <h3>Índice de Capítulos</h3>
+        <button id="btn-close-toc" class="btn-close">&times;</button>
+      </div>
+      <div class="toc-list" id="toc-container">
+        <p class="empty-msg">No hay tabla de contenidos disponible</p>
+      </div>
+    </aside>
+
+    <!-- Center Main Frame -->
+    <main class="reader-wrapper">
+      
+      <!-- Library View (Shown on startup) -->
+      <div id="library-screen" class="library-container">
+        <div class="library-header-box">
+          <h2>Mi Biblioteca de Libros</h2>
+          <p>Tus libros importados se guardan y sincronizan automáticamente. Haz clic en cualquier libro para reanudar la lectura exactamente donde te quedaste.</p>
+        </div>
+
+        <div class="library-grid" id="library-grid">
+          <!-- Add Book Card -->
+          <div class="book-card add-book-card" id="btn-welcome-open">
+            <div class="add-icon">+</div>
+            <div class="add-text">Importar Nuevo Libro (.epub)</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- EPUB Reader Container -->
+      <div id="reader-container" class="reader-container" style="display: none;">
+        
+        <button id="btn-prev-page" class="nav-arrow nav-prev" title="Página Anterior (&larr;)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="15 18 9 12 15 6"/>
+          </svg>
+        </button>
+
+        <!-- Reader Inner Frame (Single Page / Double Page wrapper) -->
+        <div class="reader-frame-center single-page-mode" id="reader-frame-center">
+          <div id="viewer" class="epub-viewer"></div>
+        </div>
+
+        <button id="btn-next-page" class="nav-arrow nav-next" title="Página Siguiente (&rarr;)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="9 18 15 12 9 6"/>
+          </svg>
+        </button>
+
+        <!-- Bottom Page / Progress Footer -->
+        <footer class="reader-footer">
+          <div class="footer-info">
+            <span id="page-location-text">Cargando progreso...</span>
+          </div>
+          <div class="footer-progress">
+            <div class="progress-bar-bg">
+              <div id="progress-bar-fill" class="progress-bar-fill" style="width: 0%;"></div>
+            </div>
+            <span id="progress-percent" class="progress-percent">0%</span>
+          </div>
+        </footer>
+
+      </div>
+
+    </main>
+
+    <!-- Right Notes & Highlights Panel -->
+    <aside class="notes-sidebar collapsed" id="notes-sidebar">
+      <div class="sidebar-header">
+        <h3>Subrayados y Notas</h3>
+        <button id="btn-close-notes" class="btn-close">&times;</button>
+      </div>
+
+      <!-- Color Filters -->
+      <div class="color-filter-bar">
+        <button class="filter-pill active" data-filter="all">Todos</button>
+        <button class="filter-pill yellow" data-filter="#fce83a" title="Amarillo"></button>
+        <button class="filter-pill green" data-filter="#5cdb95" title="Verde"></button>
+        <button class="filter-pill blue" data-filter="#38b6ff" title="Azul"></button>
+        <button class="filter-pill pink" data-filter="#ff75a0" title="Rosa"></button>
+      </div>
+
+      <!-- Highlights List -->
+      <div class="notes-list" id="notes-list-container">
+        <p class="empty-msg">No has realizado subrayados en este libro. Selecciona texto dentro de la lectura para subrayar y agregar comentarios.</p>
+      </div>
+    </aside>
+
+  </div>
+
+  <!-- Selection Popup Menu for Highlighting -->
+  <div id="highlight-toolbar" class="highlight-toolbar" style="display: none;">
+    <div class="color-picker">
+      <button class="color-dot yellow" data-color="#fce83a" title="Subrayar Amarillo"></button>
+      <button class="color-dot green" data-color="#5cdb95" title="Subrayar Verde"></button>
+      <button class="color-dot blue" data-color="#38b6ff" title="Subrayar Azul"></button>
+      <button class="color-dot pink" data-color="#ff75a0" title="Subrayar Rosa"></button>
+    </div>
+    <div class="toolbar-divider"></div>
+    <button id="btn-add-note-action" class="toolbar-action-btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 20h9"/>
+        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+      </svg>
+      Nota
+    </button>
+  </div>
+
+  <!-- Google Drive Sync Modal -->
+  <div id="sync-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>☁️ Sincronización con Google Drive</h3>
+        <button id="btn-close-sync-modal" class="btn-close">&times;</button>
+      </div>
+      
+      <div class="modal-body">
+        <p class="modal-desc">Sincroniza tus libros, marcadores y notas entre múltiples computadoras usando tu cuenta de Google Drive sin necesidad de servidores adicionales.</p>
+        
+        <div class="sync-status-box">
+          <label>Carpeta de Sincronización Actual:</label>
+          <div id="sync-folder-path" class="sync-folder-path-display">No configurado (Guardando localmente)</div>
+        </div>
+
+        <div class="modal-actions-list">
+          <button id="btn-open-drive-web" class="btn btn-secondary btn-lg">
+            🌐 Abrir Google Drive en el Navegador Web
+          </button>
+
+          <button id="btn-auto-connect-drive" class="btn btn-primary btn-lg">
+            ⚡ Detección Automática de Google Drive en Windows
+          </button>
+          
+          <button id="btn-choose-sync-folder" class="btn btn-secondary btn-lg">
+            📁 Seleccionar Carpeta en Google Drive / Equipo...
+          </button>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button id="btn-done-sync" class="btn btn-primary">Aceptar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Export Notes Modal -->
+  <div id="export-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Exportar Frases y Notas</h3>
+        <button id="btn-close-export-modal" class="btn-close">&times;</button>
+      </div>
+      
+      <div class="modal-body">
+        <p class="modal-desc">Elige el formato en el que deseas extraer tus citas y comentarios personales de este libro:</p>
+        
+        <div class="format-options">
+          <label class="format-radio">
+            <input type="radio" name="export-format" value="md" checked>
+            <span class="radio-card">
+              <strong>Markdown (.md)</strong>
+              <small>Ideal para Notion, Obsidian o editores de texto enriquecido</small>
+            </span>
+          </label>
+
+          <label class="format-radio">
+            <input type="radio" name="export-format" value="txt">
+            <span class="radio-card">
+              <strong>Texto Plano (.txt)</strong>
+              <small>Formato universal compatible con cualquier lector</small>
+            </span>
+          </label>
+        </div>
+
+        <div class="export-preview-box">
+          <label>Vista previa del contenido a exportar:</label>
+          <textarea id="export-preview-text" readonly></textarea>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button id="btn-copy-clipboard" class="btn btn-secondary">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+          </svg>
+          Copiar al Portapapeles
+        </button>
+        
+        <button id="btn-save-export-file" class="btn btn-primary">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+            <polyline points="17 21 17 13 7 13 7 21"/>
+            <polyline points="7 3 7 8 15 8"/>
+          </svg>
+          Guardar en Archivo
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
