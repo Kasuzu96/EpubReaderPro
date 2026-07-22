@@ -20,6 +20,7 @@ let currentSelectedText = "";
 let currentVisibleCfi = null;
 let currentVisibleTextSnippet = "";
 let isPickingBookmarkMode = false;
+let activeBookmarkAnnotationCfi = null;
 
 let currentFontSize = 100;
 let activeColorFilter = 'all';
@@ -322,6 +323,7 @@ function showLibraryScreen() {
   currentBookId = null;
   bookTitleDisplay.textContent = "Mi Biblioteca";
   isPickingBookmarkMode = false;
+  activeBookmarkAnnotationCfi = null;
   if (bookmarkPickerBanner) bookmarkPickerBanner.style.display = 'none';
 
   // Mostrar únicamente botones de la Biblioteca
@@ -348,7 +350,21 @@ function showLibraryScreen() {
   renderLibraryGrid();
 }
 
-btnBackLibrary.addEventListener('click', showLibraryScreen);
+btnBackLibrary.addEventListener('click', () => {
+  if (currentBookId) {
+    const confirmSave = confirm("¿Deseas fijar la frase actual como tu marcapáginas de lectura antes de volver a la biblioteca?");
+    if (confirmSave) {
+      const paraInfo = getVisibleTopParagraphInfo();
+      const finalCfi = paraInfo ? paraInfo.cfi : currentVisibleCfi;
+      const finalSnippet = paraInfo ? paraInfo.textSnippet : currentVisibleTextSnippet;
+      if (finalCfi) {
+        saveExactPickedBookmark(finalCfi, finalSnippet || "Última lectura");
+      }
+    }
+  }
+  showLibraryScreen();
+});
+
 brandLogo.addEventListener('click', showLibraryScreen);
 
 function renderLibraryGrid() {
@@ -616,7 +632,7 @@ function setupRenditionEvents() {
       currentSelectedText = range.toString().trim();
       
       if (isPickingBookmarkMode && currentSelectedText.length > 0) {
-        // Guardar la selección interactiva como el Punto Exacto de lectura
+        // Guardar la selección interactiva como la ÚNICA frase marcapáginas
         saveExactPickedBookmark(cfiRange, currentSelectedText);
         return;
       }
@@ -632,31 +648,45 @@ function setupRenditionEvents() {
   });
 }
 
+/**
+ * Guarda 1 ÚNICO marcapáginas exacto por libro. Elimina cualquier marcador anterior.
+ */
 function saveExactPickedBookmark(cfiRange, textSnippet) {
   if (!currentBookId) return;
 
   const bookData = libraryState.books[currentBookId];
   if (bookData) {
+    // 1. Eliminar cualquier resaltado de marcapáginas anterior en el visor
+    if (activeBookmarkAnnotationCfi && currentRendition) {
+      try {
+        currentRendition.annotations.remove(activeBookmarkAnnotationCfi, 'highlight');
+      } catch(e) {}
+    }
+
+    // 2. Establecer los datos del marcapáginas único
     bookData.cfi = cfiRange;
-    bookData.anchorText = textSnippet.substring(0, 50);
+    bookData.anchorText = textSnippet.substring(0, 60);
     saveLibraryData();
+
+    activeBookmarkAnnotationCfi = cfiRange;
+
+    // 3. Aplicar el resaltado verde esmeralda único del marcapáginas
+    try {
+      currentRendition.annotations.highlight(cfiRange, {}, null, 'single-bookmark-marker', { fill: '#10b981', 'fill-opacity': '0.4' });
+    } catch(e) {}
 
     isPickingBookmarkMode = false;
     if (bookmarkPickerBanner) bookmarkPickerBanner.style.display = 'none';
 
-    if (bookmarkLabelText) bookmarkLabelText.textContent = "✓ ¡Frase Fijada!";
+    if (bookmarkLabelText) bookmarkLabelText.textContent = "✓ Marcapáginas Fijado";
     btnSaveBookmark.style.backgroundColor = "#10b981";
     btnSaveBookmark.style.color = "white";
-
-    try {
-      currentRendition.annotations.highlight(cfiRange, {}, null, 'bookmark-anchor-active', { fill: '#10b981', 'fill-opacity': '0.4' });
-    } catch(e) {}
 
     setTimeout(() => {
       if (bookmarkLabelText) bookmarkLabelText.textContent = "Fijar Frase Exacta";
       btnSaveBookmark.style.backgroundColor = "";
       btnSaveBookmark.style.color = "";
-    }, 2200);
+    }, 2000);
   }
 }
 
@@ -664,13 +694,11 @@ if (btnSaveBookmark) {
   btnSaveBookmark.addEventListener('click', async () => {
     if (!currentBookId) return;
 
-    // 1. Si el usuario ya seleccionó texto en la pantalla, fijarlo directamente
     if (currentSelectedCfi && currentSelectedText && currentSelectedText.length > 0) {
       saveExactPickedBookmark(currentSelectedCfi, currentSelectedText);
       return;
     }
 
-    // 2. Si no hay selección, activar el modo de selección interactiva de frase
     isPickingBookmarkMode = true;
     if (bookmarkPickerBanner) bookmarkPickerBanner.style.display = 'flex';
   });
@@ -686,9 +714,11 @@ if (btnCancelBookmarkPicker) {
 function applySavedHighlightsToViewer() {
   if (!currentRendition || !currentBookId) return;
   const bookData = libraryState.books[currentBookId];
-  if (!bookData || !bookData.highlights) return;
+  if (!bookData) return;
 
-  bookData.highlights.forEach(h => {
+  // Resaltar notas normales
+  const highlights = bookData.highlights || [];
+  highlights.forEach(h => {
     try {
       currentRendition.annotations.highlight(h.cfi, {}, () => {
         notesSidebar.classList.remove('collapsed');
@@ -696,9 +726,11 @@ function applySavedHighlightsToViewer() {
     } catch (e) {}
   });
 
+  // Resaltar el 1 ÚNICO marcapáginas exacto guardado
   if (bookData.cfi) {
     try {
-      currentRendition.annotations.highlight(bookData.cfi, {}, null, 'bookmark-anchor-active', { fill: '#10b981', 'fill-opacity': '0.35' });
+      activeBookmarkAnnotationCfi = bookData.cfi;
+      currentRendition.annotations.highlight(bookData.cfi, {}, null, 'single-bookmark-marker', { fill: '#10b981', 'fill-opacity': '0.38' });
     } catch(e) {}
   }
 }
