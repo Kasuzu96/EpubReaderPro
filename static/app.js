@@ -48,6 +48,11 @@ const btnOpenAccountChooser = document.getElementById('btn-open-account-chooser'
 const btnConnectDriveToken = document.getElementById('btn-connect-drive-token');
 const inputDriveToken = document.getElementById('input-drive-token');
 
+const globalLoadingOverlay = document.getElementById('global-loading-overlay');
+const loadingTitle = document.getElementById('loading-title');
+const loadingDesc = document.getElementById('loading-desc');
+const globalLoadingBar = document.getElementById('global-loading-bar');
+
 const btnFontInc = document.getElementById('btn-font-inc');
 const btnFontDec = document.getElementById('btn-font-dec');
 const fontControls = document.getElementById('font-controls');
@@ -78,18 +83,39 @@ const btnCopyClipboard = document.getElementById('btn-copy-clipboard');
 const btnSaveExportFile = document.getElementById('btn-save-export-file');
 const exportPreviewText = document.getElementById('export-preview-text');
 
+function showGlobalLoading(title = "☁️ Sincronizando Biblioteca", desc = "Cargando tus libros y comentarios...", pct = 40) {
+  if (loadingTitle) loadingTitle.textContent = title;
+  if (loadingDesc) loadingDesc.textContent = desc;
+  if (globalLoadingBar) globalLoadingBar.style.width = pct + '%';
+  if (globalLoadingOverlay) globalLoadingOverlay.style.display = 'flex';
+}
+
+function hideGlobalLoading() {
+  if (globalLoadingOverlay) globalLoadingOverlay.style.display = 'none';
+}
+
 // Initialize PyWebview Connection
 window.addEventListener('pywebviewready', () => {
-  loadLibraryData();
+  initAppWithSync();
 });
 
 document.addEventListener('DOMContentLoaded', () => {
   setTimeout(() => {
     if (window.pywebview && window.pywebview.api) {
-      loadLibraryData();
+      initAppWithSync();
     }
   }, 300);
 });
+
+async function initAppWithSync() {
+  showGlobalLoading("⏳ Auto-Actualizador al Inicio", "Buscando tus libros, marcadores y comentarios en Google Drive...", 50);
+  try {
+    await loadLibraryData();
+    if (globalLoadingBar) globalLoadingBar.style.width = '100%';
+  } finally {
+    setTimeout(hideGlobalLoading, 600);
+  }
+}
 
 async function loadLibraryData() {
   try {
@@ -200,15 +226,20 @@ if (btnConnectDriveToken) {
     }
 
     if (window.pywebview && window.pywebview.api) {
-      const res = await window.pywebview.api.connect_google_cloud_token(tokenStr);
-      if (res.success) {
-        libraryState.settings.googleCloudToken = tokenStr;
-        updateSyncDisplay("Google Drive Conectado ✓");
-        alert(`¡Conexión Exitosa con Google Drive!\nSe ha localizado tu carpeta 'EpubReaderData' existente y descargado tus libros y notas.`);
-        await loadLibraryData();
-        syncModal.style.display = 'none';
-      } else {
-        alert(res.error || "No se pudo conectar con este Token.");
+      showGlobalLoading("⚡ Conectando Google Drive", "Descargando libros y comentarios desde tu nube...", 60);
+      try {
+        const res = await window.pywebview.api.connect_google_cloud_token(tokenStr);
+        if (res.success) {
+          libraryState.settings.googleCloudToken = tokenStr;
+          updateSyncDisplay("Google Drive Conectado ✓");
+          alert(`¡Conexión Exitosa con Google Drive!\nSe ha localizado tu carpeta 'EpubReaderData' existente y descargado tus libros y notas.`);
+          await loadLibraryData();
+          syncModal.style.display = 'none';
+        } else {
+          alert(res.error || "No se pudo conectar con este Token.");
+        }
+      } finally {
+        hideGlobalLoading();
       }
     }
   });
@@ -349,10 +380,13 @@ function renderLibraryGrid() {
 
 async function loadEpubFromPath(filePath, existingCoverB64 = null) {
   try {
+    showGlobalLoading("📖 Abriendo Libro", "Cargando contenido y marcadores...", 60);
+
     pageLocationText.textContent = "Abriendo libro y cargando portada...";
     
     let res = await window.pywebview.api.read_epub_base64(filePath);
     if (res.error) {
+      hideGlobalLoading();
       alert("No se pudo abrir el libro: " + res.error);
       return;
     }
@@ -454,6 +488,8 @@ async function loadEpubFromPath(filePath, existingCoverB64 = null) {
 
   } catch (err) {
     alert("Ocurrió un error al procesar el libro EPUB: " + err);
+  } finally {
+    hideGlobalLoading();
   }
 }
 
@@ -746,6 +782,7 @@ function renderNotesList() {
       </div>
       <textarea class="note-comment-box" placeholder="Escribe un comentario personal aquí...">${escapeHtml(h.comment || '')}</textarea>
       <div class="note-actions">
+        <button class="btn-save-note" data-id="${h.id}">💾 Guardar Comentario</button>
         <button class="btn-delete-note" data-id="${h.id}">Eliminar</button>
       </div>
     `;
@@ -755,9 +792,23 @@ function renderNotesList() {
     });
 
     const textarea = card.querySelector('.note-comment-box');
+    const saveBtn = card.querySelector('.btn-save-note');
+
     textarea.addEventListener('input', (e) => {
       h.comment = e.target.value;
-      saveLibraryData();
+      saveBtn.textContent = "💾 Guardar *";
+      saveBtn.style.backgroundColor = "var(--accent-primary)";
+    });
+
+    saveBtn.addEventListener('click', async () => {
+      h.comment = textarea.value;
+      await saveLibraryData();
+      saveBtn.textContent = "✓ Guardado";
+      saveBtn.style.backgroundColor = "#10b981";
+      setTimeout(() => {
+        saveBtn.textContent = "💾 Guardar Comentario";
+        saveBtn.style.backgroundColor = "var(--accent-primary)";
+      }, 1800);
     });
 
     card.querySelector('.btn-delete-note').addEventListener('click', () => {
