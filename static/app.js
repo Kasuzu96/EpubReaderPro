@@ -29,6 +29,7 @@ const btnOpenFile = document.getElementById('btn-open-file');
 const btnWelcomeOpen = document.getElementById('btn-welcome-open');
 const btnBackLibrary = document.getElementById('btn-back-library');
 const brandLogo = document.getElementById('brand-logo');
+const btnGithubUpdate = document.getElementById('btn-github-update');
 
 const btnToggleToc = document.getElementById('btn-toggle-toc');
 const btnCloseToc = document.getElementById('btn-close-toc');
@@ -119,6 +120,31 @@ async function initAppWithSync() {
   } finally {
     setTimeout(hideGlobalLoading, 600);
   }
+}
+
+// Handler for 1-Click Update from GitHub
+if (btnGithubUpdate) {
+  btnGithubUpdate.addEventListener('click', async () => {
+    if (!confirm("¿Deseas descargar e instalar la versión más reciente de EpubReaderPro directamente desde GitHub?")) return;
+
+    showGlobalLoading("🔄 Actualizando Aplicativo", "Descargando la última versión del código desde GitHub...", 60);
+    try {
+      if (window.pywebview && window.pywebview.api) {
+        const res = await window.pywebview.api.check_and_update_from_github();
+        if (res.success) {
+          if (globalLoadingBar) globalLoadingBar.style.width = '100%';
+          alert(res.message);
+          await window.pywebview.api.restart_application();
+        } else {
+          alert(res.error || "No se pudo actualizar desde GitHub.");
+        }
+      }
+    } catch (err) {
+      alert("Error durante la actualización: " + err);
+    } finally {
+      hideGlobalLoading();
+    }
+  });
 }
 
 async function loadLibraryData() {
