@@ -276,7 +276,6 @@ class EpubApi:
 
             repo_root = os.path.join(temp_extract_dir, extracted_subdirs[0])
             
-            # Actualizar archivos estáticos y scripts locales
             target_dir = APP_DIR
             for root, dirs, files in os.walk(repo_root):
                 rel_path = os.path.relpath(root, repo_root)
@@ -592,6 +591,18 @@ def main():
         background_color='#f5f0e6'
     )
     api.set_window(window)
+
+    def on_closing():
+        try:
+            res = window.evaluate_js("handleWindowClosePrompt()")
+            if res is False:
+                return False
+        except Exception:
+            pass
+        return True
+
+    window.events.closing += on_closing
+
     webview.start(debug=False)
 
 if __name__ == "__main__":
