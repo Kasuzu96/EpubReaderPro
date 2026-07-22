@@ -43,6 +43,7 @@ class GoogleDriveCloudAPI:
         if not self.access_token:
             return None
         
+        # Buscar la carpeta EpubReaderData existente
         query = urllib.parse.quote("name='EpubReaderData' and mimeType='application/vnd.google-apps.folder' and trashed=false")
         url = f"https://www.googleapis.com/drive/v3/files?q={query}"
         req = urllib.request.Request(url, headers=self._headers())
@@ -52,10 +53,12 @@ class GoogleDriveCloudAPI:
                 files = data.get("files", [])
                 if files:
                     self.folder_id = files[0]["id"]
+                    print("Carpeta existente EpubReaderData encontrada en Drive ID:", self.folder_id)
                     return self.folder_id
         except Exception as e:
             print("Notice checking remote drive folder:", e)
 
+        # Si no existe, crear la carpeta EpubReaderData
         create_url = "https://www.googleapis.com/drive/v3/files"
         payload = json.dumps({
             "name": "EpubReaderData",
@@ -68,10 +71,26 @@ class GoogleDriveCloudAPI:
             with urllib.request.urlopen(req_create) as resp:
                 data = json.loads(resp.read().decode('utf-8'))
                 self.folder_id = data.get("id")
+                print("Nueva carpeta EpubReaderData creada en Drive ID:", self.folder_id)
                 return self.folder_id
         except Exception as e:
             print("Notice creating remote drive folder:", e)
             return None
+
+    def list_files_in_folder(self):
+        if not self.access_token or not self.folder_id:
+            return []
+        
+        query = urllib.parse.quote(f"'{self.folder_id}' in parents and trashed=false")
+        url = f"https://www.googleapis.com/drive/v3/files?q={query}"
+        req = urllib.request.Request(url, headers=self._headers())
+        try:
+            with urllib.request.urlopen(req) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+                return data.get("files", [])
+        except Exception as e:
+            print("Error listing files in drive folder:", e)
+            return []
 
     def upload_file_to_drive(self, file_name, file_bytes, mime_type="application/octet-stream"):
         if not self.access_token or not self.folder_id:
@@ -244,32 +263,80 @@ class EpubApi:
         folder_id = self.cloud_api.set_token(token_str)
         if folder_id:
             self._cloud_token = token_str.strip()
-            self._sync_to_cloud_api()
-            return {"success": True, "folder_id": folder_id}
+            
+            # Realizar sincronización y descarga masiva inmediata desde la nube
+            downloaded_count = self.pull_all_from_google_drive()
+            
+            return {
+                "success": True, 
+                "folder_id": folder_id,
+                "downloaded_books": downloaded_count
+            }
         else:
             return {"error": "No se pudo conectar a Google Drive. Verifica que el token copiado esté activo."}
+
+    def pull_all_from_google_drive(self):
+        """Descarga completa desde la carpeta existente EpubReaderData en Google Drive hacia el equipo local"""
+        if not self._cloud_token or not self.cloud_api.folder_id:
+            return 0
+
+        # 1. Descargar y fusionar library_data.json
+        remote_bytes = self.cloud_api.download_file_from_drive("library_data.json")
+        if remote_bytes:
+            try:
+                remote_data = json.loads(remote_bytes.decode('utf-8'))
+                
+                local_data = {"books": {}}
+                if os.path.exists(DEFAULT_DATA_FILE):
+                    with open(DEFAULT_DATA_FILE, "r", encoding="utf-8") as f:
+                        local_data = json.load(f)
+
+                remote_books = remote_data.get("books", {})
+                local_books = local_data.get("books", {})
+
+                for b_id, b_info in remote_books.items():
+                    if b_id not in local_books:
+                        local_books[b_id] = b_info
+                    else:
+                        if b_info.get("progressPct", 0) > local_books[b_id].get("progressPct", 0):
+                            local_books[b_id]["progressPct"] = b_info["progressPct"]
+                            local_books[b_id]["cfi"] = b_info.get("cfi")
+                        if len(b_info.get("highlights", [])) > len(local_books[b_id].get("highlights", [])):
+                            local_books[b_id]["highlights"] = b_info["highlights"]
+
+                local_data["books"] = local_books
+                if "settings" not in local_data:
+                    local_data["settings"] = {}
+                local_data["settings"]["googleCloudToken"] = self._cloud_token
+
+                with open(DEFAULT_DATA_FILE, "w", encoding="utf-8") as f:
+                    json.dump(local_data, f, ensure_ascii=False, indent=2)
+
+            except Exception as e:
+                print("Error fusionando datos remotos:", e)
+
+        # 2. Descargar todos los libros EPUB presentes en la carpeta de Google Drive
+        downloaded = 0
+        drive_files = self.cloud_api.list_files_in_folder()
+        for f_item in drive_files:
+            f_name = f_item.get("name", "")
+            if f_name.endswith(".epub"):
+                local_book_path = os.path.join(DEFAULT_BOOKS_DIR, f_name)
+                if not os.path.exists(local_book_path):
+                    print(f"Descargando libro desde Google Drive: {f_name}...")
+                    epub_bytes = self.cloud_api.download_file_from_drive(f_name)
+                    if epub_bytes:
+                        with open(local_book_path, "wb") as f_out:
+                            f_out.write(epub_bytes)
+                        downloaded += 1
+
+        return downloaded
 
     def _sync_to_cloud_api(self):
         if not self._cloud_token or not self.cloud_api.folder_id:
             return
 
-        remote_bytes = self.cloud_api.download_file_from_drive("library_data.json")
-        if remote_bytes:
-            try:
-                remote_data = json.loads(remote_bytes.decode('utf-8'))
-                remote_mtime = remote_data.get("last_updated", 0)
-                
-                local_mtime = 0
-                if os.path.exists(DEFAULT_DATA_FILE):
-                    with open(DEFAULT_DATA_FILE, "r", encoding="utf-8") as f:
-                        loc_d = json.load(f)
-                        local_mtime = loc_d.get("last_updated", 0)
-
-                if remote_mtime > local_mtime:
-                    with open(DEFAULT_DATA_FILE, "w", encoding="utf-8") as f:
-                        json.dump(remote_data, f, ensure_ascii=False, indent=2)
-            except Exception as e:
-                print("Notice merging remote cloud data:", e)
+        self.pull_all_from_google_drive()
 
         if os.path.exists(DEFAULT_DATA_FILE):
             with open(DEFAULT_DATA_FILE, "rb") as f:
@@ -425,7 +492,7 @@ class EpubApi:
     def load_library_data(self):
         try:
             self._sync_files_bidirectional()
-            self._sync_to_cloud_api()
+            self.pull_all_from_google_drive()
 
             if os.path.exists(DEFAULT_DATA_FILE):
                 with open(DEFAULT_DATA_FILE, "r", encoding="utf-8") as f:
