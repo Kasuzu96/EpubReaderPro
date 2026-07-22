@@ -1,37 +1,39 @@
 import os
-import subprocess
 import sys
+import subprocess
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
-def build_executable():
+def build_exe():
     print("Iniciando la compilación a ejecutable de Windows (.exe)...")
     
+    main_py = os.path.join(APP_DIR, "main.py")
     static_dir = os.path.join(APP_DIR, "static")
-    add_data_arg = f"{static_dir};static"
-
+    icon_path = os.path.join(APP_DIR, "app_icon.ico")
+    
     cmd = [
-        sys.executable,
-        "-m", "PyInstaller",
+        sys.executable, "-m", "PyInstaller",
         "--noconfirm",
         "--onedir",
         "--windowed",
         "--name", "EpubReaderPro",
-        "--add-data", add_data_arg,
-        os.path.join(APP_DIR, "main.py")
+        "--icon", icon_path,
+        "--add-data", f"{static_dir};static",
+        main_py
     ]
-
-    print("Comando PyInstaller:", " ".join(cmd))
-    res = subprocess.run(cmd, cwd=APP_DIR)
     
-    if res.returncode == 0:
-        output_path = os.path.join(APP_DIR, "dist", "EpubReaderPro", "EpubReaderPro.exe")
+    print("Comando PyInstaller:", " ".join(cmd))
+    result = subprocess.run(cmd, cwd=APP_DIR)
+    
+    if result.returncode == 0:
         print("\n==================================================")
         print("¡COMPILACIÓN EXITOSA!")
-        print(f"El ejecutable ejecutable nativo se encuentra en:\n{output_path}")
+        print("El ejecutable nativo se encuentra en:")
+        print(os.path.join(APP_DIR, "dist", "EpubReaderPro", "EpubReaderPro.exe"))
         print("==================================================\n")
     else:
-        print("\nError al compilar con PyInstaller.")
+        print("ERROR en la compilación.")
+        sys.exit(1)
 
 if __name__ == "__main__":
-    build_executable()
+    build_exe()
