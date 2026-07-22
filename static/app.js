@@ -329,7 +329,7 @@ function showLibraryScreen() {
   btnExportNotes.style.display = 'none';
   btnToggleLayout.style.display = 'none';
   if (btnSaveBookmark) btnSaveBookmark.style.display = 'none';
-  fontControls.style.display = 'none';
+  fontControls.style.display = 'flex';
   if (headerHighlighterTools) headerHighlighterTools.style.display = 'none';
 
   tocSidebar.classList.add('collapsed');
@@ -537,6 +537,38 @@ async function loadEpubFromPath(filePath, existingCoverB64 = null) {
   }
 }
 
+/**
+ * Inspecciona el DOM del libro dentro del Iframe para hallar el párrafo superior exactamente visible
+ */
+function getVisibleTopParagraphInfo() {
+  if (!currentRendition) return null;
+  try {
+    const contents = currentRendition.getContents();
+    if (!contents || contents.length === 0) return null;
+
+    for (const content of contents) {
+      const doc = content.document;
+      if (!doc) continue;
+
+      const elements = doc.querySelectorAll('p, h1, h2, h3, h4, section, blockquote');
+      for (const el of elements) {
+        const rect = el.getBoundingClientRect();
+        const txt = el.textContent ? el.textContent.trim().replace(/\s+/g, ' ') : '';
+        if (rect.top >= -30 && rect.bottom > 20 && txt.length > 15) {
+          const nodeCfi = content.cfiFromNode(el);
+          return {
+            cfi: nodeCfi || currentVisibleCfi,
+            textSnippet: txt.substring(0, 50)
+          };
+        }
+      }
+    }
+  } catch (e) {
+    console.log("Notice inspecting visible paragraph:", e);
+  }
+  return null;
+}
+
 function setupRenditionEvents() {
   if (!currentRendition) return;
 
@@ -549,45 +581,28 @@ function setupRenditionEvents() {
       const cfi = location.start.cfi;
       currentVisibleCfi = cfi;
 
-      const bookData = libraryState.books[currentBookId];
-
-      if (currentBook.getRange) {
-        currentBook.getRange(cfi).then(range => {
-          if (range) {
-            const txt = range.toString().trim().replace(/\s+/g, ' ');
-            if (txt.length > 0) {
-              currentVisibleTextSnippet = txt.substring(0, 45);
-            }
-          }
-          if (bookData) {
-            bookData.cfi = cfi;
-            if (currentVisibleTextSnippet) {
-              bookData.anchorText = currentVisibleTextSnippet;
-            }
-
-            if (currentBook.locations && currentBook.locations.length() > 0) {
-              const pct = Math.round((currentBook.locations.percentageFromCfi(cfi) || 0) * 100);
-              bookData.progressPct = pct;
-            }
-
-            saveLibraryData();
-          }
-
-          updateProgressDisplay(location);
-        }).catch(() => {
-          if (bookData) {
-            bookData.cfi = cfi;
-            saveLibraryData();
-          }
-          updateProgressDisplay(location);
-        });
-      } else {
-        if (bookData) {
-          bookData.cfi = cfi;
-          saveLibraryData();
-        }
-        updateProgressDisplay(location);
+      const paraInfo = getVisibleTopParagraphInfo();
+      if (paraInfo) {
+        currentVisibleCfi = paraInfo.cfi;
+        currentVisibleTextSnippet = paraInfo.textSnippet;
       }
+
+      const bookData = libraryState.books[currentBookId];
+      if (bookData) {
+        bookData.cfi = currentVisibleCfi;
+        if (currentVisibleTextSnippet) {
+          bookData.anchorText = currentVisibleTextSnippet;
+        }
+
+        if (currentBook.locations && currentBook.locations.length() > 0) {
+          const pct = Math.round((currentBook.locations.percentageFromCfi(currentVisibleCfi) || 0) * 100);
+          bookData.progressPct = pct;
+        }
+
+        saveLibraryData();
+      }
+
+      updateProgressDisplay(location);
     }
   });
 
@@ -608,17 +623,23 @@ function setupRenditionEvents() {
 
 if (btnSaveBookmark) {
   btnSaveBookmark.addEventListener('click', async () => {
-    if (!currentBookId || !currentVisibleCfi) return;
+    if (!currentBookId) return;
+
+    const paraInfo = getVisibleTopParagraphInfo();
+    const finalCfi = paraInfo ? paraInfo.cfi : currentVisibleCfi;
+    const finalSnippet = paraInfo ? paraInfo.textSnippet : currentVisibleTextSnippet;
+
+    if (!finalCfi) return;
 
     const bookData = libraryState.books[currentBookId];
     if (bookData) {
-      bookData.cfi = currentVisibleCfi;
-      if (currentVisibleTextSnippet) {
-        bookData.anchorText = currentVisibleTextSnippet;
+      bookData.cfi = finalCfi;
+      if (finalSnippet) {
+        bookData.anchorText = finalSnippet;
       }
       await saveLibraryData();
 
-      if (bookmarkLabelText) bookmarkLabelText.textContent = "✓ Punto Guardado";
+      if (bookmarkLabelText) bookmarkLabelText.textContent = "✓ Punto Exacto Guardado";
       btnSaveBookmark.style.backgroundColor = "#10b981";
       btnSaveBookmark.style.color = "white";
 
@@ -626,7 +647,7 @@ if (btnSaveBookmark) {
         if (bookmarkLabelText) bookmarkLabelText.textContent = "Guardar Punto Exacto";
         btnSaveBookmark.style.backgroundColor = "";
         btnSaveBookmark.style.color = "";
-      }, 1800);
+      }, 2000);
     }
   });
 }
@@ -650,7 +671,7 @@ function updateProgressDisplay(location) {
   
   let pctVal = 0;
   if (location && location.start && currentBook.locations) {
-    const percentage = currentBook.locations.percentageFromCfi(location.start.cfi);
+    const percentage = currentBook.locations.percentageFromCfi(currentVisibleCfi || location.start.cfi);
     pctVal = Math.round((percentage || 0) * 100);
   } else if (currentBookId && libraryState.books[currentBookId]) {
     pctVal = libraryState.books[currentBookId].progressPct || 0;
@@ -661,7 +682,7 @@ function updateProgressDisplay(location) {
   
   if (location && location.start) {
     const pageNum = location.start.displayed.page || (location.start.index + 1);
-    let snippetLabel = currentVisibleTextSnippet ? ` | 📍 "${currentVisibleTextSnippet}..."` : '';
+    let snippetLabel = currentVisibleTextSnippet ? ` | 📍 Párrafo: "${currentVisibleTextSnippet}..."` : '';
     pageLocationText.textContent = `Progreso: ${pctVal}% ${snippetLabel} | Sec. ${pageNum}`;
   }
 }
