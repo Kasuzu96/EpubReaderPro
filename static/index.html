@@ -74,9 +74,9 @@
     </div>
 
     <div class="header-right">
-      <!-- Explicit Bookmark Button (Seguro Extra de Lectura) -->
-      <button id="btn-save-bookmark" class="btn btn-secondary btn-sm" style="display: none;" title="Guardar punto de lectura exacto por párrafo (Seguro Extra)">
-        🔖 <span id="bookmark-label-text">Guardar Punto Exacto</span>
+      <!-- Interactive Bookmark Button (Marcar Frase Exacta) -->
+      <button id="btn-save-bookmark" class="btn btn-secondary btn-sm" style="display: none;" title="Fijar frase o párrafo exacto para recordar lectura">
+        🔖 <span id="bookmark-label-text">Fijar Frase Exacta</span>
       </button>
 
       <!-- Always Visible Highlighter Tool in Header -->
@@ -127,6 +127,12 @@
       </button>
     </div>
   </header>
+
+  <!-- Interactive Floating Banner for Bookmark Selection -->
+  <div id="bookmark-picker-banner" class="bookmark-picker-banner" style="display: none;">
+    <span>📍 <strong>Fijar Frase Exacta:</strong> Selecciona o haz clic en cualquier párrafo en la pantalla para marcar tu punto de lectura.</span>
+    <button id="btn-cancel-bookmark-picker" class="btn-close-sm">&times;</button>
+  </div>
 
   <!-- Main View Area -->
   <div class="app-body">
