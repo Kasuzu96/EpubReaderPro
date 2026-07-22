@@ -203,10 +203,10 @@ if (btnConnectDriveToken) {
       const res = await window.pywebview.api.connect_google_cloud_token(tokenStr);
       if (res.success) {
         libraryState.settings.googleCloudToken = tokenStr;
-        saveLibraryData();
         updateSyncDisplay("Google Drive Conectado ✓");
-        alert("¡Conexión Exitosa con Google Drive!\nSe ha creado la carpeta 'EpubReaderData' en tu nube.");
-        loadLibraryData();
+        alert(`¡Conexión Exitosa con Google Drive!\nSe ha localizado tu carpeta 'EpubReaderData' existente y descargado tus libros y notas.`);
+        await loadLibraryData();
+        syncModal.style.display = 'none';
       } else {
         alert(res.error || "No se pudo conectar con este Token.");
       }
@@ -222,7 +222,7 @@ btnChooseSyncFolder.addEventListener('click', async () => {
       saveLibraryData();
       updateSyncDisplay(res.sync_folder);
       alert(`¡Carpeta de sincronización establecida!\nUbicación: ${res.sync_folder}`);
-      loadLibraryData();
+      await loadLibraryData();
     }
   }
 });
