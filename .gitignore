@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
+# PyInstaller Build Artifacts
+build/
+dist/
+*.spec
+
+# Local User Data (Libros y datos personales de lectura)
+library_data.json
+books/
+
+# Windows / Temp
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msm
+*.msp
+*.lnk
+make_shortcut.vbs
