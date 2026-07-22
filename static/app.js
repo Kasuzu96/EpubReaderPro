@@ -44,9 +44,7 @@ const syncModal = document.getElementById('sync-modal');
 const syncFolderPath = document.getElementById('sync-folder-path');
 const syncBtnLabel = document.getElementById('sync-btn-label');
 
-const btnGetGoogleOAuth = document.getElementById('btn-get-google-oauth');
-const btnConnectDriveToken = document.getElementById('btn-connect-drive-token');
-const inputDriveToken = document.getElementById('input-drive-token');
+const btnGoogleOneClickLogin = document.getElementById('btn-google-one-click-login');
 
 const btnFontInc = document.getElementById('btn-font-inc');
 const btnFontDec = document.getElementById('btn-font-dec');
@@ -145,8 +143,7 @@ function restoreUserSettings() {
   }
 
   if (settings.googleCloudToken) {
-    if (inputDriveToken) inputDriveToken.value = settings.googleCloudToken;
-    updateSyncDisplay("Google Drive API Cloud Conectado ✓");
+    updateSyncDisplay("Google Drive Conectado ✓");
   } else if (settings.syncFolder) {
     updateSyncDisplay(settings.syncFolder);
   } else {
@@ -156,8 +153,8 @@ function restoreUserSettings() {
 
 function updateSyncDisplay(statusText) {
   if (statusText) {
-    syncBtnLabel.textContent = "Drive API Activo ✓";
-    syncFolderPath.textContent = "✓ Sincronizado en la Nube: " + statusText;
+    syncBtnLabel.textContent = "Drive Activo ✓";
+    syncFolderPath.textContent = "✓ Sincronizando con Google Drive: " + statusText;
     syncFolderPath.style.color = "var(--accent-primary)";
   } else {
     syncBtnLabel.textContent = "Sincronizar Drive";
@@ -176,7 +173,7 @@ async function saveLibraryData() {
   }
 }
 
-// Google Drive Sync Modal & Token Connection Controls
+// Google Drive Sync Modal & 1-Click Sign-In
 btnOpenSyncModal.addEventListener('click', () => {
   syncModal.style.display = 'flex';
 });
@@ -184,36 +181,22 @@ btnOpenSyncModal.addEventListener('click', () => {
 btnCloseSyncModal.addEventListener('click', () => syncModal.style.display = 'none');
 btnDoneSync.addEventListener('click', () => syncModal.style.display = 'none');
 
-if (btnGetGoogleOAuth) {
-  btnGetGoogleOAuth.addEventListener('click', async () => {
+if (btnGoogleOneClickLogin) {
+  btnGoogleOneClickLogin.addEventListener('click', async () => {
     if (window.pywebview && window.pywebview.api) {
-      await window.pywebview.api.open_google_oauth_page();
+      await window.pywebview.api.start_google_one_click_login();
     }
   });
 }
 
-if (btnConnectDriveToken) {
-  btnConnectDriveToken.addEventListener('click', async () => {
-    const tokenStr = inputDriveToken.value.trim();
-    if (!tokenStr) {
-      alert("Por favor pega primero un Token de Acceso de Google Drive.");
-      return;
-    }
-
-    if (window.pywebview && window.pywebview.api) {
-      const res = await window.pywebview.api.connect_google_cloud_token(tokenStr);
-      if (res.success) {
-        libraryState.settings.googleCloudToken = tokenStr;
-        saveLibraryData();
-        updateSyncDisplay("Google Drive API Cloud Conectado ✓");
-        alert("¡Conexión Exitosa con la API de Google Drive!\nSe ha creado la carpeta 'EpubReaderData' directamente en tu nube de Google Drive.");
-        loadLibraryData();
-      } else {
-        alert(res.error || "No se pudo conectar con este Token de Google Drive.");
-      }
-    }
-  });
-}
+// Global Callback when Google OAuth finishes automatically
+window.onGoogleLoginSuccess = function(token) {
+  libraryState.settings.googleCloudToken = token;
+  saveLibraryData();
+  updateSyncDisplay("Google Drive Conectado ✓");
+  alert("¡Inicio de sesión con Google Exitoso!\nTu aplicativo se ha sincronizado automáticamente con tu Google Drive.");
+  loadLibraryData();
+};
 
 btnChooseSyncFolder.addEventListener('click', async () => {
   if (window.pywebview && window.pywebview.api) {
