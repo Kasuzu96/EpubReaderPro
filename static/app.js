@@ -19,6 +19,8 @@ let currentSelectedCfi = null;
 let currentSelectedText = "";
 let currentVisibleCfi = null;
 let currentVisibleTextSnippet = "";
+let isPickingBookmarkMode = false;
+
 let currentFontSize = 100;
 let activeColorFilter = 'all';
 let currentLayoutMode = 'single';
@@ -40,6 +42,9 @@ const btnToggleLayout = document.getElementById('btn-toggle-layout');
 const btnSaveBookmark = document.getElementById('btn-save-bookmark');
 const bookmarkLabelText = document.getElementById('bookmark-label-text');
 const headerHighlighterTools = document.getElementById('header-highlighter-tools');
+
+const bookmarkPickerBanner = document.getElementById('bookmark-picker-banner');
+const btnCancelBookmarkPicker = document.getElementById('btn-cancel-bookmark-picker');
 
 const btnOpenSyncModal = document.getElementById('btn-open-sync-modal');
 const btnCloseSyncModal = document.getElementById('btn-close-sync-modal');
@@ -316,6 +321,8 @@ function showLibraryScreen() {
 
   currentBookId = null;
   bookTitleDisplay.textContent = "Mi Biblioteca";
+  isPickingBookmarkMode = false;
+  if (bookmarkPickerBanner) bookmarkPickerBanner.style.display = 'none';
 
   // Mostrar únicamente botones de la Biblioteca
   btnOpenFile.style.display = 'inline-flex';
@@ -329,7 +336,7 @@ function showLibraryScreen() {
   btnExportNotes.style.display = 'none';
   btnToggleLayout.style.display = 'none';
   if (btnSaveBookmark) btnSaveBookmark.style.display = 'none';
-  fontControls.style.display = 'flex';
+  fontControls.style.display = 'none';
   if (headerHighlighterTools) headerHighlighterTools.style.display = 'none';
 
   tocSidebar.classList.add('collapsed');
@@ -537,9 +544,6 @@ async function loadEpubFromPath(filePath, existingCoverB64 = null) {
   }
 }
 
-/**
- * Inspecciona el DOM del libro dentro del Iframe para hallar el párrafo superior exactamente visible
- */
 function getVisibleTopParagraphInfo() {
   if (!currentRendition) return null;
   try {
@@ -610,6 +614,13 @@ function setupRenditionEvents() {
     currentSelectedCfi = cfiRange;
     currentBook.getRange(cfiRange).then(range => {
       currentSelectedText = range.toString().trim();
+      
+      if (isPickingBookmarkMode && currentSelectedText.length > 0) {
+        // Guardar la selección interactiva como el Punto Exacto de lectura
+        saveExactPickedBookmark(cfiRange, currentSelectedText);
+        return;
+      }
+
       if (currentSelectedText.length > 0) {
         highlightToolbar.style.display = 'flex';
       }
@@ -621,34 +632,54 @@ function setupRenditionEvents() {
   });
 }
 
+function saveExactPickedBookmark(cfiRange, textSnippet) {
+  if (!currentBookId) return;
+
+  const bookData = libraryState.books[currentBookId];
+  if (bookData) {
+    bookData.cfi = cfiRange;
+    bookData.anchorText = textSnippet.substring(0, 50);
+    saveLibraryData();
+
+    isPickingBookmarkMode = false;
+    if (bookmarkPickerBanner) bookmarkPickerBanner.style.display = 'none';
+
+    if (bookmarkLabelText) bookmarkLabelText.textContent = "✓ ¡Frase Fijada!";
+    btnSaveBookmark.style.backgroundColor = "#10b981";
+    btnSaveBookmark.style.color = "white";
+
+    try {
+      currentRendition.annotations.highlight(cfiRange, {}, null, 'bookmark-anchor-active', { fill: '#10b981', 'fill-opacity': '0.4' });
+    } catch(e) {}
+
+    setTimeout(() => {
+      if (bookmarkLabelText) bookmarkLabelText.textContent = "Fijar Frase Exacta";
+      btnSaveBookmark.style.backgroundColor = "";
+      btnSaveBookmark.style.color = "";
+    }, 2200);
+  }
+}
+
 if (btnSaveBookmark) {
   btnSaveBookmark.addEventListener('click', async () => {
     if (!currentBookId) return;
 
-    const paraInfo = getVisibleTopParagraphInfo();
-    const finalCfi = paraInfo ? paraInfo.cfi : currentVisibleCfi;
-    const finalSnippet = paraInfo ? paraInfo.textSnippet : currentVisibleTextSnippet;
-
-    if (!finalCfi) return;
-
-    const bookData = libraryState.books[currentBookId];
-    if (bookData) {
-      bookData.cfi = finalCfi;
-      if (finalSnippet) {
-        bookData.anchorText = finalSnippet;
-      }
-      await saveLibraryData();
-
-      if (bookmarkLabelText) bookmarkLabelText.textContent = "✓ Punto Exacto Guardado";
-      btnSaveBookmark.style.backgroundColor = "#10b981";
-      btnSaveBookmark.style.color = "white";
-
-      setTimeout(() => {
-        if (bookmarkLabelText) bookmarkLabelText.textContent = "Guardar Punto Exacto";
-        btnSaveBookmark.style.backgroundColor = "";
-        btnSaveBookmark.style.color = "";
-      }, 2000);
+    // 1. Si el usuario ya seleccionó texto en la pantalla, fijarlo directamente
+    if (currentSelectedCfi && currentSelectedText && currentSelectedText.length > 0) {
+      saveExactPickedBookmark(currentSelectedCfi, currentSelectedText);
+      return;
     }
+
+    // 2. Si no hay selección, activar el modo de selección interactiva de frase
+    isPickingBookmarkMode = true;
+    if (bookmarkPickerBanner) bookmarkPickerBanner.style.display = 'flex';
+  });
+}
+
+if (btnCancelBookmarkPicker) {
+  btnCancelBookmarkPicker.addEventListener('click', () => {
+    isPickingBookmarkMode = false;
+    if (bookmarkPickerBanner) bookmarkPickerBanner.style.display = 'none';
   });
 }
 
@@ -664,6 +695,12 @@ function applySavedHighlightsToViewer() {
       }, 'hl-class', { fill: h.color, 'fill-opacity': '0.35' });
     } catch (e) {}
   });
+
+  if (bookData.cfi) {
+    try {
+      currentRendition.annotations.highlight(bookData.cfi, {}, null, 'bookmark-anchor-active', { fill: '#10b981', 'fill-opacity': '0.35' });
+    } catch(e) {}
+  }
 }
 
 function updateProgressDisplay(location) {
