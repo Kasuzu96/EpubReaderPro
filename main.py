@@ -11,7 +11,6 @@ import webview
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Directorio persistente en AppData del usuario
 USER_APPDATA_DIR = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "EpubReaderPro")
 os.makedirs(USER_APPDATA_DIR, exist_ok=True)
 
@@ -19,24 +18,47 @@ DEFAULT_DATA_FILE = os.path.join(USER_APPDATA_DIR, "library_data.json")
 DEFAULT_BOOKS_DIR = os.path.join(USER_APPDATA_DIR, "books")
 os.makedirs(DEFAULT_BOOKS_DIR, exist_ok=True)
 
-def detect_google_drive_path():
-    """Detecta automáticamente carpetas conocidas de Google Drive en Windows"""
+def find_all_google_drive_accounts():
+    """Detecta todas las cuentas y unidades de Google Drive presentes en el equipo"""
     user_home = os.path.expanduser("~")
-    possible_paths = [
-        os.path.join(user_home, "Google Drive"),
-        os.path.join(user_home, "My Drive"),
-        os.path.join(user_home, "Mi unidad"),
-        os.path.join(user_home, "GoogleDrive"),
-        r"G:\My Drive",
-        r"G:\Mi unidad",
-        r"G:\\"
-    ]
-    for p in possible_paths:
-        if os.path.exists(p):
-            target = os.path.join(p, "EpubReaderData")
-            os.makedirs(target, exist_ok=True)
-            return target
-    return None
+    accounts = []
+    
+    # 1. Buscar unidades de Google Drive Desktop (G:, H:, I:, J:, K:, etc.)
+    for letter in ['G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q']:
+        drive_root = f"{letter}:\\"
+        if os.path.exists(drive_root):
+            mi_unidad = os.path.join(drive_root, "Mi unidad")
+            my_drive = os.path.join(drive_root, "My Drive")
+            if os.path.exists(mi_unidad):
+                accounts.append({
+                    "name": f"Google Drive - Unidad ({letter}:) / Mi unidad",
+                    "path": os.path.join(mi_unidad, "EpubReaderData")
+                })
+            elif os.path.exists(my_drive):
+                accounts.append({
+                    "name": f"Google Drive - Unidad ({letter}:) / My Drive",
+                    "path": os.path.join(my_drive, "EpubReaderData")
+                })
+            else:
+                accounts.append({
+                    "name": f"Unidad de disco ({letter}:)",
+                    "path": os.path.join(drive_root, "EpubReaderData")
+                })
+
+    # 2. Buscar carpetas en el perfil del usuario (~/Google Drive...)
+    try:
+        for item in os.listdir(user_home):
+            if "google drive" in item.lower() or "my drive" in item.lower() or "googledrive" in item.lower():
+                full_p = os.path.join(user_home, item)
+                if os.path.isdir(full_p):
+                    accounts.append({
+                        "name": f"Cuenta Local: {item}",
+                        "path": os.path.join(full_p, "EpubReaderData")
+                    })
+    except Exception:
+        pass
+
+    return accounts
 
 def extract_epub_cover_base64(epub_path):
     """Extrae la imagen de portada de un archivo .epub y devuelve Data URL Base64"""
@@ -113,16 +135,29 @@ class EpubApi:
                     d = json.load(f)
                     if d.get("settings") and d["settings"].get("syncFolder"):
                         self._sync_folder = d["settings"]["syncFolder"]
-            except Exception as e:
+            except Exception:
                 pass
 
+    def get_detected_drive_accounts(self):
+        """Devuelve la lista de cuentas de Google Drive detectadas en el sistema"""
+        return find_all_google_drive_accounts()
+
+    def set_sync_account_path(self, target_folder):
+        """Establece una cuenta/carpeta específica como ubicación de sincronización y crea la carpeta automáticamente"""
+        try:
+            os.makedirs(target_folder, exist_ok=True)
+            self._sync_folder = target_folder
+            self._sync_files_bidirectional()
+            return {"success": True, "sync_folder": target_folder}
+        except Exception as e:
+            return {"error": str(e)}
+
     def open_google_drive_web(self):
-        """Abre Google Drive en el navegador predeterminado del usuario"""
+        """Abre Google Drive en el navegador predeterminado para iniciar sesión o seleccionar cuenta"""
         webbrowser.open("https://drive.google.com")
         return {"success": True}
 
     def open_sync_folder_explorer(self):
-        """Abre la carpeta de sincronización en el Explorador de Windows"""
         target = self._sync_folder if (self._sync_folder and os.path.exists(self._sync_folder)) else USER_APPDATA_DIR
         try:
             os.startfile(target)
@@ -138,20 +173,8 @@ class EpubApi:
         if result and len(result) > 0:
             chosen_folder = result[0]
             target_folder = os.path.join(chosen_folder, "EpubReaderData") if not chosen_folder.endswith("EpubReaderData") else chosen_folder
-            os.makedirs(target_folder, exist_ok=True)
-            
-            self._sync_folder = target_folder
-            self._sync_files_bidirectional()
-            return {"success": True, "sync_folder": target_folder}
+            return self.set_sync_account_path(target_folder)
         return {"cancelled": True}
-
-    def auto_connect_google_drive(self):
-        drive_path = detect_google_drive_path()
-        if drive_path:
-            self._sync_folder = drive_path
-            self._sync_files_bidirectional()
-            return {"success": True, "sync_folder": drive_path}
-        return {"error": "No se encontró la carpeta predeterminada de Google Drive. Por favor haz clic en 'Seleccionar Carpeta'."}
 
     def _sync_files_bidirectional(self):
         if not self._sync_folder or not os.path.exists(self._sync_folder):
