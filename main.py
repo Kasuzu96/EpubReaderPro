@@ -5,6 +5,7 @@ import time
 import base64
 import shutil
 import zipfile
+import threading
 import subprocess
 import urllib.request
 import urllib.parse
@@ -51,7 +52,7 @@ class GoogleDriveCloudAPI:
         url = f"https://www.googleapis.com/drive/v3/files?q={query}"
         req = urllib.request.Request(url, headers=self._headers())
         try:
-            with urllib.request.urlopen(req) as resp:
+            with urllib.request.urlopen(req, timeout=10) as resp:
                 data = json.loads(resp.read().decode('utf-8'))
                 files = data.get("files", [])
                 if files:
@@ -69,7 +70,7 @@ class GoogleDriveCloudAPI:
         headers["Content-Type"] = "application/json"
         req_create = urllib.request.Request(create_url, data=payload, headers=headers, method="POST")
         try:
-            with urllib.request.urlopen(req_create) as resp:
+            with urllib.request.urlopen(req_create, timeout=10) as resp:
                 data = json.loads(resp.read().decode('utf-8'))
                 self.folder_id = data.get("id")
                 return self.folder_id
@@ -85,7 +86,7 @@ class GoogleDriveCloudAPI:
         url = f"https://www.googleapis.com/drive/v3/files?q={query}"
         req = urllib.request.Request(url, headers=self._headers())
         try:
-            with urllib.request.urlopen(req) as resp:
+            with urllib.request.urlopen(req, timeout=10) as resp:
                 data = json.loads(resp.read().decode('utf-8'))
                 return data.get("files", [])
         except Exception as e:
@@ -101,7 +102,7 @@ class GoogleDriveCloudAPI:
         file_id = None
         req = urllib.request.Request(search_url, headers=self._headers())
         try:
-            with urllib.request.urlopen(req) as resp:
+            with urllib.request.urlopen(req, timeout=10) as resp:
                 files = json.loads(resp.read().decode('utf-8')).get("files", [])
                 if files:
                     file_id = files[0]["id"]
@@ -134,7 +135,7 @@ class GoogleDriveCloudAPI:
         }
         req_upload = urllib.request.Request(upload_url, data=body, headers=headers, method=method)
         try:
-            with urllib.request.urlopen(req_upload) as resp:
+            with urllib.request.urlopen(req_upload, timeout=15) as resp:
                 return True
         except Exception as e:
             print("Error uploading to Google Drive API:", e)
@@ -149,7 +150,7 @@ class GoogleDriveCloudAPI:
         file_id = None
         req = urllib.request.Request(search_url, headers=self._headers())
         try:
-            with urllib.request.urlopen(req) as resp:
+            with urllib.request.urlopen(req, timeout=10) as resp:
                 files = json.loads(resp.read().decode('utf-8')).get("files", [])
                 if files:
                     file_id = files[0]["id"]
@@ -162,7 +163,7 @@ class GoogleDriveCloudAPI:
         download_url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
         req_down = urllib.request.Request(download_url, headers=self._headers())
         try:
-            with urllib.request.urlopen(req_down) as resp:
+            with urllib.request.urlopen(req_down, timeout=15) as resp:
                 return resp.read()
         except Exception as e:
             print("Error downloading from Google Drive API:", e)
@@ -260,7 +261,7 @@ class EpubApi:
             req = urllib.request.Request(url, headers=headers)
             
             temp_zip = os.path.join(USER_APPDATA_DIR, "latest_update.zip")
-            with urllib.request.urlopen(req) as resp, open(temp_zip, "wb") as f_out:
+            with urllib.request.urlopen(req, timeout=20) as resp, open(temp_zip, "wb") as f_out:
                 f_out.write(resp.read())
 
             temp_extract_dir = os.path.join(USER_APPDATA_DIR, "update_extracted")
@@ -463,7 +464,11 @@ class EpubApi:
 
             if self._cloud_token and self.cloud_api.folder_id:
                 with open(dest_path, "rb") as f:
-                    self.cloud_api.upload_file_to_drive(file_name, f.read(), "application/epub+zip")
+                    file_bytes = f.read()
+                threading.Thread(
+                    target=lambda: self.cloud_api.upload_file_to_drive(file_name, file_bytes, "application/epub+zip"),
+                    daemon=True
+                ).start()
 
             cover_b64 = extract_epub_cover_base64(dest_path)
             res = self.read_epub_base64(dest_path)
@@ -523,6 +528,7 @@ class EpubApi:
             data = json.loads(data_json_str) if isinstance(data_json_str, str) else data_json_str
             data["last_updated"] = time.time()
 
+            # Guardado local instantáneo en JSON
             with open(DEFAULT_DATA_FILE, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
 
@@ -531,9 +537,15 @@ class EpubApi:
                 with open(sync_file, "w", encoding="utf-8") as f:
                     json.dump(data, f, ensure_ascii=False, indent=2)
 
+            # Sincronización en la nube en hilo en segundo plano (Evita congelamientos UI)
             if self._cloud_token and self.cloud_api.folder_id:
                 json_bytes = json.dumps(data, ensure_ascii=False, indent=2).encode('utf-8')
-                self.cloud_api.upload_file_to_drive("library_data.json", json_bytes, "application/json")
+                def _bg_upload():
+                    try:
+                        self.cloud_api.upload_file_to_drive("library_data.json", json_bytes, "application/json")
+                    except Exception as ex:
+                        print("Background upload notice:", ex)
+                threading.Thread(target=_bg_upload, daemon=True).start()
 
             return {"success": True}
         except Exception as e:
@@ -593,12 +605,7 @@ def main():
     api.set_window(window)
 
     def on_closing():
-        try:
-            res = window.evaluate_js("handleWindowClosePrompt()")
-            if res is False:
-                return False
-        except Exception:
-            pass
+        # Cierre instantáneo y seguro sin deadlocks ni diálogos bloqueantes
         return True
 
     window.events.closing += on_closing
