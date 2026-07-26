@@ -105,20 +105,29 @@ function hideGlobalLoading() {
   if (globalLoadingOverlay) globalLoadingOverlay.style.display = 'none';
 }
 
-// Intercept Window Closing from pywebview (Click on top-right X button)
-window.handleWindowClosePrompt = function() {
-  if (currentBookId && readerContainer.style.display !== 'none') {
-    const confirmSave = confirm("¿Deseas fijar la frase actual como tu marcapáginas de lectura antes de cerrar el programa?");
-    if (confirmSave) {
-      const paraInfo = getVisibleTopParagraphInfo();
-      const finalCfi = paraInfo ? paraInfo.cfi : currentVisibleCfi;
-      const finalSnippet = paraInfo ? paraInfo.textSnippet : currentVisibleTextSnippet;
-      if (finalCfi) {
-        saveExactPickedBookmark(finalCfi, finalSnippet || "Última lectura");
+// Auto-guardado instantáneo y limpio de la posición de lectura
+function autoSaveCurrentReadingPosition() {
+  if (!currentBookId || !libraryState.books[currentBookId]) return;
+  try {
+    const paraInfo = getVisibleTopParagraphInfo();
+    const finalCfi = paraInfo ? paraInfo.cfi : currentVisibleCfi;
+    const finalSnippet = paraInfo ? paraInfo.textSnippet : currentVisibleTextSnippet;
+    if (finalCfi) {
+      const bookData = libraryState.books[currentBookId];
+      bookData.cfi = finalCfi;
+      if (finalSnippet) {
+        bookData.anchorText = finalSnippet;
       }
+      saveLibraryData();
     }
+  } catch (e) {
+    console.log("Notice auto-saving reading position:", e);
   }
-  return true; // Allow application window to close cleanly
+}
+
+window.handleWindowClosePrompt = function() {
+  autoSaveCurrentReadingPosition();
+  return true;
 };
 
 // Initialize PyWebview Connection
@@ -367,12 +376,14 @@ function showLibraryScreen() {
 }
 
 btnBackLibrary.addEventListener('click', () => {
-  window.handleWindowClosePrompt();
+  autoSaveCurrentReadingPosition();
   showLibraryScreen();
 });
 
 brandLogo.addEventListener('click', () => {
-  window.handleWindowClosePrompt();
+  if (readerContainer.style.display !== 'none') {
+    autoSaveCurrentReadingPosition();
+  }
   showLibraryScreen();
 });
 
