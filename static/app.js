@@ -27,6 +27,15 @@ let activeColorFilter = 'all';
 let currentLayoutMode = 'single';
 let currentActiveColor = '#fce83a';
 
+// Library Search & Sort State
+let librarySearchQuery = "";
+let librarySortOption = "recent";
+
+// Reading Stats & Time Estimation State
+let sessionStartTime = Date.now();
+let pagesReadCount = 0;
+const AVERAGE_WPM = 220; // Average reading speed in Words Per Minute
+
 // DOM Elements
 const btnOpenFile = document.getElementById('btn-open-file');
 const btnWelcomeOpen = document.getElementById('btn-welcome-open');
@@ -43,6 +52,17 @@ const btnToggleLayout = document.getElementById('btn-toggle-layout');
 const btnSaveBookmark = document.getElementById('btn-save-bookmark');
 const bookmarkLabelText = document.getElementById('bookmark-label-text');
 const headerHighlighterTools = document.getElementById('header-highlighter-tools');
+
+const btnToggleSearch = document.getElementById('btn-toggle-search');
+const btnCloseSearch = document.getElementById('btn-close-search');
+const searchSidebar = document.getElementById('search-sidebar');
+const inputSearchBook = document.getElementById('input-search-book');
+const btnExecSearch = document.getElementById('btn-exec-search');
+const searchResultsContainer = document.getElementById('search-results-container');
+
+const inputSearchLibrary = document.getElementById('input-search-library');
+const selectSortLibrary = document.getElementById('select-sort-library');
+const dragDropOverlay = document.getElementById('drag-drop-overlay');
 
 const bookmarkPickerBanner = document.getElementById('bookmark-picker-banner');
 const btnCancelBookmarkPicker = document.getElementById('btn-cancel-bookmark-picker');
@@ -80,6 +100,7 @@ const notesListContainer = document.getElementById('notes-list-container');
 const notesBadge = document.getElementById('notes-badge');
 const bookTitleDisplay = document.querySelector('#book-title-display .current-book-name');
 const pageLocationText = document.getElementById('page-location-text');
+const readingTimeRemaining = document.getElementById('reading-time-remaining');
 const progressBarFill = document.getElementById('progress-bar-fill');
 const progressPercent = document.getElementById('progress-percent');
 const fontSizeVal = document.getElementById('font-size-val');
@@ -136,6 +157,10 @@ window.addEventListener('pywebviewready', () => {
 });
 
 document.addEventListener('DOMContentLoaded', () => {
+  setupDragAndDrop();
+  setupLibraryFilterControls();
+  setupSearchInBook();
+  
   setTimeout(() => {
     if (window.pywebview && window.pywebview.api) {
       initAppWithSync();
@@ -150,6 +175,87 @@ async function initAppWithSync() {
     if (globalLoadingBar) globalLoadingBar.style.width = '100%';
   } finally {
     setTimeout(hideGlobalLoading, 600);
+  }
+}
+
+// --- Drag & Drop EPUB File Import ---
+function setupDragAndDrop() {
+  let dragCounter = 0;
+
+  window.addEventListener('dragenter', (e) => {
+    e.preventDefault();
+    dragCounter++;
+    if (dragDropOverlay) dragDropOverlay.style.display = 'flex';
+  });
+
+  window.addEventListener('dragover', (e) => {
+    e.preventDefault();
+  });
+
+  window.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    dragCounter--;
+    if (dragCounter <= 0 && dragDropOverlay) {
+      dragDropOverlay.style.display = 'none';
+      dragCounter = 0;
+    }
+  });
+
+  window.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    dragCounter = 0;
+    if (dragDropOverlay) dragDropOverlay.style.display = 'none';
+
+    const files = e.dataTransfer.files;
+    if (!files || files.length === 0) return;
+
+    for (const file of files) {
+      if (file.name.toLowerCase().endswith('.epub') || file.name.toLowerCase().includes('.epub')) {
+        await processDroppedEpubFile(file);
+      }
+    }
+  });
+}
+
+async function processDroppedEpubFile(file) {
+  showGlobalLoading("📥 Importando Libro", `Procesando ${file.name}...`, 50);
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const binary = new Uint8Array(arrayBuffer);
+    let binaryStr = "";
+    for (let i = 0; i < binary.length; i++) {
+      binaryStr += String.fromCharCode(binary[i]);
+    }
+    const b64 = btoa(binaryStr);
+    
+    // Si pywebview API está disponible, guardar el archivo en el sistema
+    if (window.pywebview && window.pywebview.api) {
+      const fileName = file.name;
+      const res = await window.pywebview.api.save_library_data(JSON.stringify(libraryState));
+    }
+    
+    // Cargar directamente el buffer importado
+    loadEpubFromBuffer(arrayBuffer, file.name);
+  } catch (err) {
+    alert("Error al importar el archivo arrastrado: " + err);
+    hideGlobalLoading();
+  }
+}
+
+// --- Library Search & Filter Controls ---
+function setupLibraryFilterControls() {
+  if (inputSearchLibrary) {
+    inputSearchLibrary.addEventListener('input', (e) => {
+      librarySearchQuery = e.target.value.toLowerCase().trim();
+      renderLibraryGrid();
+    });
+  }
+
+  if (selectSortLibrary) {
+    selectSortLibrary.addEventListener('change', (e) => {
+      librarySortOption = e.target.value;
+      renderLibraryGrid();
+    });
   }
 }
 
@@ -359,6 +465,7 @@ function showLibraryScreen() {
   // Ocultar herramientas de lectura
   btnBackLibrary.style.display = 'none';
   btnToggleToc.style.display = 'none';
+  if (btnToggleSearch) btnToggleSearch.style.display = 'none';
   btnToggleNotes.style.display = 'none';
   btnExportNotes.style.display = 'none';
   btnToggleLayout.style.display = 'none';
@@ -367,6 +474,7 @@ function showLibraryScreen() {
   if (headerHighlighterTools) headerHighlighterTools.style.display = 'none';
 
   tocSidebar.classList.add('collapsed');
+  if (searchSidebar) searchSidebar.classList.add('collapsed');
   notesSidebar.classList.add('collapsed');
 
   readerContainer.style.display = 'none';
@@ -399,7 +507,32 @@ function renderLibraryGrid() {
   addCard.addEventListener('click', triggerImportFile);
   libraryGrid.appendChild(addCard);
 
-  const books = Object.entries(libraryState.books || {});
+  let books = Object.entries(libraryState.books || {});
+
+  // 1. Filtrado por búsqueda en título
+  if (librarySearchQuery) {
+    books = books.filter(([id, b]) => {
+      const title = b.title ? b.title.toLowerCase() : '';
+      return title.includes(librarySearchQuery);
+    });
+  }
+
+  // 2. Ordenamiento
+  books.sort((a, b) => {
+    const bookA = a[1];
+    const bookB = b[1];
+
+    if (librarySortOption === 'title') {
+      return (bookA.title || '').localeCompare(bookB.title || '');
+    } else if (librarySortOption === 'pct') {
+      return (bookB.progressPct || 0) - (bookA.progressPct || 0);
+    } else {
+      // 'recent' por defecto
+      const timeA = bookA.lastReadTime || (bookA.progressPct ? 100 : 0);
+      const timeB = bookB.lastReadTime || (bookB.progressPct ? 100 : 0);
+      return timeB - timeA;
+    }
+  });
 
   books.forEach(([id, b]) => {
     const card = document.createElement('div');
@@ -456,6 +589,39 @@ function renderLibraryGrid() {
 
     libraryGrid.appendChild(card);
   });
+}
+
+async function loadEpubFromBuffer(arrayBuffer, fileName) {
+  try {
+    showGlobalLoading("📖 Abriendo Libro", "Cargando contenido...", 60);
+
+    currentBookId = btoa(unescape(encodeURIComponent(fileName))).replace(/=/g, '');
+    currentBookTitle = fileName.replace('.epub', '');
+    bookTitleDisplay.textContent = currentBookTitle;
+
+    if (!libraryState.books[currentBookId]) {
+      libraryState.books[currentBookId] = {
+        title: currentBookTitle,
+        path: fileName,
+        cover: null,
+        cfi: null,
+        progressPct: 0,
+        highlights: []
+      };
+    }
+
+    if (currentBook) {
+      currentBook.destroy();
+      document.getElementById('viewer').innerHTML = '';
+    }
+
+    currentBook = ePub(arrayBuffer);
+    setupRenditionAndDisplay();
+  } catch (err) {
+    alert("Error al abrir libro EPUB: " + err);
+  } finally {
+    hideGlobalLoading();
+  }
 }
 
 async function loadEpubFromPath(filePath, existingCoverB64 = null) {
@@ -521,63 +687,71 @@ async function loadEpubFromPath(filePath, existingCoverB64 = null) {
       });
     }
 
-    const spreadMode = (currentLayoutMode === 'single') ? 'none' : 'always';
-
-    currentRendition = currentBook.renderTo("viewer", {
-      width: "100%",
-      height: "100%",
-      spread: spreadMode,
-      flow: "paginated"
-    });
-
-    applyCurrentThemeToRendition();
-    if (currentFontSize !== 100) {
-      currentRendition.themes.fontSize(currentFontSize + '%');
-    }
-
-    const savedCfi = libraryState.books[currentBookId].cfi;
-    if (savedCfi) {
-      currentRendition.display(savedCfi);
-    } else {
-      currentRendition.display();
-    }
-
-    libraryScreen.style.display = 'none';
-    readerContainer.style.display = 'flex';
-
-    // Ocultar botones de biblioteca al estar en el modo de lectura
-    btnOpenFile.style.display = 'none';
-    if (btnGithubUpdate) btnGithubUpdate.style.display = 'none';
-    if (btnOpenSyncModal) btnOpenSyncModal.style.display = 'none';
-
-    // Mostrar botones propios de la lectura
-    btnBackLibrary.style.display = 'inline-flex';
-    btnToggleToc.style.display = 'inline-flex';
-    btnToggleNotes.style.display = 'inline-flex';
-    btnExportNotes.style.display = 'inline-flex';
-    btnToggleLayout.style.display = 'inline-flex';
-    if (btnSaveBookmark) btnSaveBookmark.style.display = 'inline-flex';
-    fontControls.style.display = 'flex';
-    if (headerHighlighterTools) headerHighlighterTools.style.display = 'flex';
-
-    currentBook.ready.then(() => {
-      return currentBook.locations.generate(1000);
-    }).then(() => {
-      updateProgressDisplay();
-    });
-
-    currentBook.loaded.navigation.then(nav => {
-      renderToc(nav.toc);
-    });
-
-    setupRenditionEvents();
-    renderNotesList();
+    setupRenditionAndDisplay();
 
   } catch (err) {
     alert("Ocurrió un error al procesar el libro EPUB: " + err);
   } finally {
     hideGlobalLoading();
   }
+}
+
+function setupRenditionAndDisplay() {
+  const spreadMode = (currentLayoutMode === 'single') ? 'none' : 'always';
+
+  currentRendition = currentBook.renderTo("viewer", {
+    width: "100%",
+    height: "100%",
+    spread: spreadMode,
+    flow: "paginated"
+  });
+
+  applyCurrentThemeToRendition();
+  if (currentFontSize !== 100) {
+    currentRendition.themes.fontSize(currentFontSize + '%');
+  }
+
+  const savedCfi = libraryState.books[currentBookId].cfi;
+  if (savedCfi) {
+    currentRendition.display(savedCfi);
+  } else {
+    currentRendition.display();
+  }
+
+  libraryScreen.style.display = 'none';
+  readerContainer.style.display = 'flex';
+
+  // Ocultar botones de biblioteca al estar en el modo de lectura
+  btnOpenFile.style.display = 'none';
+  if (btnGithubUpdate) btnGithubUpdate.style.display = 'none';
+  if (btnOpenSyncModal) btnOpenSyncModal.style.display = 'none';
+
+  // Mostrar botones propios de la lectura
+  btnBackLibrary.style.display = 'inline-flex';
+  btnToggleToc.style.display = 'inline-flex';
+  if (btnToggleSearch) btnToggleSearch.style.display = 'inline-flex';
+  btnToggleNotes.style.display = 'inline-flex';
+  btnExportNotes.style.display = 'inline-flex';
+  btnToggleLayout.style.display = 'inline-flex';
+  if (btnSaveBookmark) btnSaveBookmark.style.display = 'inline-flex';
+  fontControls.style.display = 'flex';
+  if (headerHighlighterTools) headerHighlighterTools.style.display = 'flex';
+
+  sessionStartTime = Date.now();
+  pagesReadCount = 0;
+
+  currentBook.ready.then(() => {
+    return currentBook.locations.generate(1000);
+  }).then(() => {
+    updateProgressDisplay();
+  });
+
+  currentBook.loaded.navigation.then(nav => {
+    renderToc(nav.toc);
+  });
+
+  setupRenditionEvents();
+  renderNotesList();
 }
 
 function getVisibleTopParagraphInfo() {
@@ -620,6 +794,7 @@ function setupRenditionEvents() {
     if (location && location.start) {
       const cfi = location.start.cfi;
       currentVisibleCfi = cfi;
+      pagesReadCount++;
 
       const paraInfo = getVisibleTopParagraphInfo();
       if (paraInfo) {
@@ -630,6 +805,7 @@ function setupRenditionEvents() {
       const bookData = libraryState.books[currentBookId];
       if (bookData) {
         bookData.cfi = currentVisibleCfi;
+        bookData.lastReadTime = Date.now();
         if (currentVisibleTextSnippet) {
           bookData.anchorText = currentVisibleTextSnippet;
         }
@@ -668,6 +844,111 @@ function setupRenditionEvents() {
   });
 }
 
+// --- Full-Text Search in EPUB ---
+function setupSearchInBook() {
+  if (btnToggleSearch) {
+    btnToggleSearch.addEventListener('click', () => {
+      searchSidebar.classList.toggle('collapsed');
+      if (!searchSidebar.classList.contains('collapsed')) {
+        inputSearchBook.focus();
+      }
+    });
+  }
+
+  if (btnCloseSearch) {
+    btnCloseSearch.addEventListener('click', () => {
+      searchSidebar.classList.add('collapsed');
+    });
+  }
+
+  if (btnExecSearch) {
+    btnExecSearch.addEventListener('click', performBookSearch);
+  }
+
+  if (inputSearchBook) {
+    inputSearchBook.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') performBookSearch();
+    });
+  }
+}
+
+async function performBookSearch() {
+  const query = inputSearchBook.value.trim();
+  if (!query || !currentBook) return;
+
+  searchResultsContainer.innerHTML = '<p class="empty-msg">🔍 Buscando coincidencias en todo el libro...</p>';
+
+  try {
+    const results = [];
+    const spine = currentBook.spine;
+
+    for (const item of spine.spineItems) {
+      await item.load(currentBook.load.bind(currentBook));
+      const doc = item.document;
+      if (!doc) continue;
+
+      const text = doc.body.textContent || "";
+      let index = text.toLowerCase().indexOf(query.toLowerCase());
+      
+      while (index !== -1) {
+        const start = Math.max(0, index - 35);
+        const end = Math.min(text.length, index + query.length + 35);
+        let snippet = text.substring(start, end).replace(/\s+/g, ' ');
+
+        results.push({
+          cfi: item.cfiFromElement ? item.cfiFromElement(doc.body) : item.href,
+          href: item.href,
+          snippet: snippet,
+          query: query
+        });
+
+        if (results.length >= 30) break; // Limit search results for performance
+        index = text.toLowerCase().indexOf(query.toLowerCase(), index + query.length);
+      }
+      item.unload();
+      if (results.length >= 30) break;
+    }
+
+    renderSearchResults(results, query);
+  } catch (err) {
+    console.error("Search error:", err);
+    searchResultsContainer.innerHTML = '<p class="empty-msg">No se completó la búsqueda en algunas secciones.</p>';
+  }
+}
+
+function renderSearchResults(results, query) {
+  searchResultsContainer.innerHTML = '';
+
+  if (results.length === 0) {
+    searchResultsContainer.innerHTML = `<p class="empty-msg">No se encontraron resultados para "${escapeHtml(query)}".</p>`;
+    return;
+  }
+
+  const header = document.createElement('div');
+  header.className = 'note-meta';
+  header.style.marginBottom = '10px';
+  header.textContent = `Se encontraron ${results.length} coincidencias:`;
+  searchResultsContainer.appendChild(header);
+
+  results.forEach(res => {
+    const item = document.createElement('div');
+    item.className = 'search-result-item';
+
+    const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    const highlightedSnippet = escapeHtml(res.snippet).replace(regex, '<mark class="search-highlight-word">$1</mark>');
+
+    item.innerHTML = `<div class="search-result-snippet">"...${highlightedSnippet}..."</div>`;
+
+    item.addEventListener('click', () => {
+      if (currentRendition) {
+        currentRendition.display(res.href || res.cfi);
+      }
+    });
+
+    searchResultsContainer.appendChild(item);
+  });
+}
+
 /**
  * Guarda 1 ÚNICO marcapáginas exacto por libro. Elimina cualquier marcador anterior.
  */
@@ -676,21 +957,18 @@ function saveExactPickedBookmark(cfiRange, textSnippet) {
 
   const bookData = libraryState.books[currentBookId];
   if (bookData) {
-    // 1. Eliminar cualquier resaltado de marcapáginas anterior en el visor
     if (activeBookmarkAnnotationCfi && currentRendition) {
       try {
         currentRendition.annotations.remove(activeBookmarkAnnotationCfi, 'highlight');
       } catch(e) {}
     }
 
-    // 2. Establecer los datos del marcapáginas único
     bookData.cfi = cfiRange;
     bookData.anchorText = textSnippet.substring(0, 60);
     saveLibraryData();
 
     activeBookmarkAnnotationCfi = cfiRange;
 
-    // 3. Aplicar el resaltado verde esmeralda único del marcapáginas
     try {
       currentRendition.annotations.highlight(cfiRange, {}, null, 'single-bookmark-marker', { fill: '#10b981', 'fill-opacity': '0.4' });
     } catch(e) {}
@@ -736,7 +1014,6 @@ function applySavedHighlightsToViewer() {
   const bookData = libraryState.books[currentBookId];
   if (!bookData) return;
 
-  // Resaltar notas normales
   const highlights = bookData.highlights || [];
   highlights.forEach(h => {
     try {
@@ -746,7 +1023,6 @@ function applySavedHighlightsToViewer() {
     } catch (e) {}
   });
 
-  // Resaltar el 1 ÚNICO marcapáginas exacto guardado
   if (bookData.cfi) {
     try {
       activeBookmarkAnnotationCfi = bookData.cfi;
@@ -768,6 +1044,17 @@ function updateProgressDisplay(location) {
 
   progressBarFill.style.width = pctVal + '%';
   progressPercent.textContent = pctVal + '%';
+
+  // Estimación de Tiempo Restante
+  if (readingTimeRemaining) {
+    const remainingPct = 100 - pctVal;
+    const estTotalMin = Math.round(180 * (remainingPct / 100)); // Average book reading estimate
+    if (remainingPct <= 0) {
+      readingTimeRemaining.textContent = "⏱️ ¡Libro Completado!";
+    } else {
+      readingTimeRemaining.textContent = `⏱️ ~${estTotalMin} min restantes`;
+    }
+  }
   
   if (location && location.start) {
     const pageNum = location.start.displayed.page || (location.start.index + 1);
@@ -908,7 +1195,11 @@ function renderToc(tocItems) {
   });
 }
 
-btnToggleToc.addEventListener('click', () => tocSidebar.classList.toggle('collapsed'));
+btnToggleToc.addEventListener('click', () => {
+  if (searchSidebar) searchSidebar.classList.add('collapsed');
+  notesSidebar.classList.add('collapsed');
+  tocSidebar.classList.toggle('collapsed');
+});
 btnCloseToc.addEventListener('click', () => tocSidebar.classList.add('collapsed'));
 
 document.querySelectorAll('.color-dot').forEach(dot => {
@@ -1048,7 +1339,11 @@ document.querySelectorAll('.filter-pill').forEach(pill => {
   });
 });
 
-btnToggleNotes.addEventListener('click', () => notesSidebar.classList.toggle('collapsed'));
+btnToggleNotes.addEventListener('click', () => {
+  tocSidebar.classList.add('collapsed');
+  if (searchSidebar) searchSidebar.classList.add('collapsed');
+  notesSidebar.classList.toggle('collapsed');
+});
 btnCloseNotes.addEventListener('click', () => notesSidebar.classList.add('collapsed'));
 
 btnExportNotes.addEventListener('click', openExportModal);
