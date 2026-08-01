@@ -22,6 +22,9 @@ let currentVisibleTextSnippet = "";
 let isPickingBookmarkMode = false;
 let activeBookmarkAnnotationCfi = null;
 
+// Flag de Control para Evitar Sobrescripción en Carga Inicial
+let isInitialLoading = false;
+
 let currentFontSize = 100;
 let activeColorFilter = 'all';
 let currentLayoutMode = 'single';
@@ -34,7 +37,6 @@ let librarySortOption = "recent";
 // Reading Stats & Time Estimation State
 let sessionStartTime = Date.now();
 let pagesReadCount = 0;
-const AVERAGE_WPM = 220; // Average reading speed in Words Per Minute
 
 // DOM Elements
 const btnOpenFile = document.getElementById('btn-open-file');
@@ -66,6 +68,9 @@ const dragDropOverlay = document.getElementById('drag-drop-overlay');
 
 const bookmarkPickerBanner = document.getElementById('bookmark-picker-banner');
 const btnCancelBookmarkPicker = document.getElementById('btn-cancel-bookmark-picker');
+
+const cloudTokenWarning = document.getElementById('cloud-token-warning');
+const btnReconnectTokenBanner = document.getElementById('btn-reconnect-token-banner');
 
 const btnOpenSyncModal = document.getElementById('btn-open-sync-modal');
 const btnCloseSyncModal = document.getElementById('btn-close-sync-modal');
@@ -126,8 +131,9 @@ function hideGlobalLoading() {
   if (globalLoadingOverlay) globalLoadingOverlay.style.display = 'none';
 }
 
-// Auto-guardado instantáneo y limpio de la posición de lectura
+// Auto-guardado instantáneo de la posición de lectura
 function autoSaveCurrentReadingPosition() {
+  if (isInitialLoading) return;
   if (!currentBookId || !libraryState.books[currentBookId]) return;
   try {
     const paraInfo = getVisibleTopParagraphInfo();
@@ -136,6 +142,7 @@ function autoSaveCurrentReadingPosition() {
     if (finalCfi) {
       const bookData = libraryState.books[currentBookId];
       bookData.cfi = finalCfi;
+      bookData.lastReadTime = Date.now();
       if (finalSnippet) {
         bookData.anchorText = finalSnippet;
       }
@@ -161,6 +168,12 @@ document.addEventListener('DOMContentLoaded', () => {
   setupLibraryFilterControls();
   setupSearchInBook();
   
+  if (btnReconnectTokenBanner) {
+    btnReconnectTokenBanner.addEventListener('click', () => {
+      syncModal.style.display = 'flex';
+    });
+  }
+
   setTimeout(() => {
     if (window.pywebview && window.pywebview.api) {
       initAppWithSync();
@@ -210,7 +223,7 @@ function setupDragAndDrop() {
     if (!files || files.length === 0) return;
 
     for (const file of files) {
-      if (file.name.toLowerCase().endswith('.epub') || file.name.toLowerCase().includes('.epub')) {
+      if (file.name.toLowerCase().endsWith('.epub')) {
         await processDroppedEpubFile(file);
       }
     }
@@ -221,20 +234,6 @@ async function processDroppedEpubFile(file) {
   showGlobalLoading("📥 Importando Libro", `Procesando ${file.name}...`, 50);
   try {
     const arrayBuffer = await file.arrayBuffer();
-    const binary = new Uint8Array(arrayBuffer);
-    let binaryStr = "";
-    for (let i = 0; i < binary.length; i++) {
-      binaryStr += String.fromCharCode(binary[i]);
-    }
-    const b64 = btoa(binaryStr);
-    
-    // Si pywebview API está disponible, guardar el archivo en el sistema
-    if (window.pywebview && window.pywebview.api) {
-      const fileName = file.name;
-      const res = await window.pywebview.api.save_library_data(JSON.stringify(libraryState));
-    }
-    
-    // Cargar directamente el buffer importado
     loadEpubFromBuffer(arrayBuffer, file.name);
   } catch (err) {
     alert("Error al importar el archivo arrastrado: " + err);
@@ -293,6 +292,12 @@ async function loadLibraryData() {
         if (data.settings) {
           libraryState.settings = Object.assign({}, libraryState.settings, data.settings);
         }
+        if (data.token_expired) {
+          if (cloudTokenWarning) cloudTokenWarning.style.display = 'flex';
+          updateSyncDisplay("⚠️ Token Expirado (Reconectar)");
+        } else {
+          if (cloudTokenWarning) cloudTokenWarning.style.display = 'none';
+        }
       }
     }
   } catch (err) {
@@ -349,9 +354,9 @@ function restoreUserSettings() {
 
 function updateSyncDisplay(statusText) {
   if (statusText) {
-    syncBtnLabel.textContent = "Drive Activo ✓";
-    syncFolderPath.textContent = "✓ Sincronizado con Google Drive: " + statusText;
-    syncFolderPath.style.color = "var(--accent-primary)";
+    syncBtnLabel.textContent = statusText.includes("Expirado") ? "⚠️ Reconectar Token" : "Drive Activo ✓";
+    syncFolderPath.textContent = "✓ Sincronización en la Nube: " + statusText;
+    syncFolderPath.style.color = statusText.includes("Expirado") ? "#ef4444" : "var(--accent-primary)";
   } else {
     syncBtnLabel.textContent = "Sincronizar Drive";
     syncFolderPath.textContent = "No configurado (Guardando localmente en AppData)";
@@ -398,8 +403,9 @@ if (btnConnectDriveToken) {
         const res = await window.pywebview.api.connect_google_cloud_token(tokenStr);
         if (res.success) {
           libraryState.settings.googleCloudToken = tokenStr;
+          if (cloudTokenWarning) cloudTokenWarning.style.display = 'none';
           updateSyncDisplay("Google Drive Conectado ✓");
-          alert(`¡Conexión Exitosa con Google Drive!\nSe ha localizado tu carpeta 'EpubReaderData' existente y descargado tus libros y notas.`);
+          alert(`¡Conexión Exitosa con Google Drive!\nSe han descargado tus libros, marcapáginas y comentarios.`);
           await loadLibraryData();
           syncModal.style.display = 'none';
         } else {
@@ -425,7 +431,6 @@ btnChooseSyncFolder.addEventListener('click', async () => {
   }
 });
 
-// Import File Handler
 async function triggerImportFile() {
   try {
     let res = null;
@@ -454,15 +459,14 @@ function showLibraryScreen() {
   currentBookId = null;
   bookTitleDisplay.textContent = "Mi Biblioteca";
   isPickingBookmarkMode = false;
+  isInitialLoading = false;
   activeBookmarkAnnotationCfi = null;
   if (bookmarkPickerBanner) bookmarkPickerBanner.style.display = 'none';
 
-  // Mostrar únicamente botones de la Biblioteca
   btnOpenFile.style.display = 'inline-flex';
   if (btnGithubUpdate) btnGithubUpdate.style.display = 'inline-flex';
   if (btnOpenSyncModal) btnOpenSyncModal.style.display = 'inline-flex';
 
-  // Ocultar herramientas de lectura
   btnBackLibrary.style.display = 'none';
   btnToggleToc.style.display = 'none';
   if (btnToggleSearch) btnToggleSearch.style.display = 'none';
@@ -509,7 +513,6 @@ function renderLibraryGrid() {
 
   let books = Object.entries(libraryState.books || {});
 
-  // 1. Filtrado por búsqueda en título
   if (librarySearchQuery) {
     books = books.filter(([id, b]) => {
       const title = b.title ? b.title.toLowerCase() : '';
@@ -517,7 +520,6 @@ function renderLibraryGrid() {
     });
   }
 
-  // 2. Ordenamiento
   books.sort((a, b) => {
     const bookA = a[1];
     const bookB = b[1];
@@ -527,7 +529,6 @@ function renderLibraryGrid() {
     } else if (librarySortOption === 'pct') {
       return (bookB.progressPct || 0) - (bookA.progressPct || 0);
     } else {
-      // 'recent' por defecto
       const timeA = bookA.lastReadTime || (bookA.progressPct ? 100 : 0);
       const timeB = bookB.lastReadTime || (bookB.progressPct ? 100 : 0);
       return timeB - timeA;
@@ -606,6 +607,7 @@ async function loadEpubFromBuffer(arrayBuffer, fileName) {
         cover: null,
         cfi: null,
         progressPct: 0,
+        lastReadTime: Date.now(),
         highlights: []
       };
     }
@@ -657,6 +659,7 @@ async function loadEpubFromPath(filePath, existingCoverB64 = null) {
         cover: coverB64,
         cfi: null,
         progressPct: 0,
+        lastReadTime: Date.now(),
         highlights: []
       };
     } else if (coverB64 && !libraryState.books[currentBookId].cover) {
@@ -697,6 +700,7 @@ async function loadEpubFromPath(filePath, existingCoverB64 = null) {
 }
 
 function setupRenditionAndDisplay() {
+  isInitialLoading = true; // Activar protección durante carga inicial
   const spreadMode = (currentLayoutMode === 'single') ? 'none' : 'always';
 
   currentRendition = currentBook.renderTo("viewer", {
@@ -712,21 +716,29 @@ function setupRenditionAndDisplay() {
   }
 
   const savedCfi = libraryState.books[currentBookId].cfi;
+  
+  let displayPromise;
   if (savedCfi) {
-    currentRendition.display(savedCfi);
+    displayPromise = currentRendition.display(savedCfi);
   } else {
-    currentRendition.display();
+    displayPromise = currentRendition.display();
   }
+
+  displayPromise.then(() => {
+    // Desactivar protección tras renderizado exitoso
+    setTimeout(() => { isInitialLoading = false; }, 400);
+  }).catch(() => {
+    currentRendition.display();
+    setTimeout(() => { isInitialLoading = false; }, 400);
+  });
 
   libraryScreen.style.display = 'none';
   readerContainer.style.display = 'flex';
 
-  // Ocultar botones de biblioteca al estar en el modo de lectura
   btnOpenFile.style.display = 'none';
   if (btnGithubUpdate) btnGithubUpdate.style.display = 'none';
   if (btnOpenSyncModal) btnOpenSyncModal.style.display = 'none';
 
-  // Mostrar botones propios de la lectura
   btnBackLibrary.style.display = 'inline-flex';
   btnToggleToc.style.display = 'inline-flex';
   if (btnToggleSearch) btnToggleSearch.style.display = 'inline-flex';
@@ -794,28 +806,30 @@ function setupRenditionEvents() {
     if (location && location.start) {
       const cfi = location.start.cfi;
       currentVisibleCfi = cfi;
-      pagesReadCount++;
 
-      const paraInfo = getVisibleTopParagraphInfo();
-      if (paraInfo) {
-        currentVisibleCfi = paraInfo.cfi;
-        currentVisibleTextSnippet = paraInfo.textSnippet;
-      }
-
-      const bookData = libraryState.books[currentBookId];
-      if (bookData) {
-        bookData.cfi = currentVisibleCfi;
-        bookData.lastReadTime = Date.now();
-        if (currentVisibleTextSnippet) {
-          bookData.anchorText = currentVisibleTextSnippet;
+      if (!isInitialLoading) {
+        pagesReadCount++;
+        const paraInfo = getVisibleTopParagraphInfo();
+        if (paraInfo) {
+          currentVisibleCfi = paraInfo.cfi;
+          currentVisibleTextSnippet = paraInfo.textSnippet;
         }
 
-        if (currentBook.locations && currentBook.locations.length() > 0) {
-          const pct = Math.round((currentBook.locations.percentageFromCfi(currentVisibleCfi) || 0) * 100);
-          bookData.progressPct = pct;
-        }
+        const bookData = libraryState.books[currentBookId];
+        if (bookData) {
+          bookData.cfi = currentVisibleCfi;
+          bookData.lastReadTime = Date.now();
+          if (currentVisibleTextSnippet) {
+            bookData.anchorText = currentVisibleTextSnippet;
+          }
 
-        saveLibraryData();
+          if (currentBook.locations && currentBook.locations.length() > 0) {
+            const pct = Math.round((currentBook.locations.percentageFromCfi(currentVisibleCfi) || 0) * 100);
+            bookData.progressPct = pct;
+          }
+
+          saveLibraryData();
+        }
       }
 
       updateProgressDisplay(location);
@@ -828,7 +842,6 @@ function setupRenditionEvents() {
       currentSelectedText = range.toString().trim();
       
       if (isPickingBookmarkMode && currentSelectedText.length > 0) {
-        // Guardar la selección interactiva como la ÚNICA frase marcapáginas
         saveExactPickedBookmark(cfiRange, currentSelectedText);
         return;
       }
@@ -902,7 +915,7 @@ async function performBookSearch() {
           query: query
         });
 
-        if (results.length >= 30) break; // Limit search results for performance
+        if (results.length >= 30) break;
         index = text.toLowerCase().indexOf(query.toLowerCase(), index + query.length);
       }
       item.unload();
@@ -949,9 +962,6 @@ function renderSearchResults(results, query) {
   });
 }
 
-/**
- * Guarda 1 ÚNICO marcapáginas exacto por libro. Elimina cualquier marcador anterior.
- */
 function saveExactPickedBookmark(cfiRange, textSnippet) {
   if (!currentBookId) return;
 
@@ -965,6 +975,7 @@ function saveExactPickedBookmark(cfiRange, textSnippet) {
 
     bookData.cfi = cfiRange;
     bookData.anchorText = textSnippet.substring(0, 60);
+    bookData.lastReadTime = Date.now();
     saveLibraryData();
 
     activeBookmarkAnnotationCfi = cfiRange;
@@ -1045,10 +1056,9 @@ function updateProgressDisplay(location) {
   progressBarFill.style.width = pctVal + '%';
   progressPercent.textContent = pctVal + '%';
 
-  // Estimación de Tiempo Restante
   if (readingTimeRemaining) {
     const remainingPct = 100 - pctVal;
-    const estTotalMin = Math.round(180 * (remainingPct / 100)); // Average book reading estimate
+    const estTotalMin = Math.round(180 * (remainingPct / 100));
     if (remainingPct <= 0) {
       readingTimeRemaining.textContent = "⏱️ ¡Libro Completado!";
     } else {
