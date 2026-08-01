@@ -26,16 +26,95 @@ os.makedirs(DEFAULT_BOOKS_DIR, exist_ok=True)
 GITHUB_REPO_OWNER = "Kasuzu96"
 GITHUB_REPO_NAME = "EpubReaderPro"
 
+def merge_library_data(local_data, remote_data):
+    """
+    Algoritmo a Prueba de Fallas para la Unión Multidispositivo.
+    Combina las notas por ID único y preserva la posición de lectura más reciente (lastReadTime).
+    """
+    if not local_data:
+        local_data = {"books": {}, "settings": {}}
+    if not remote_data:
+        return local_data
+
+    local_books = local_data.get("books", {})
+    remote_books = remote_data.get("books", {})
+
+    all_bids = set(local_books.keys()).union(set(remote_books.keys()))
+    merged_books = {}
+
+    for b_id in all_bids:
+        l_b = local_books.get(b_id)
+        r_b = remote_books.get(b_id)
+
+        if l_b and not r_b:
+            orig_path = l_b.get("path", "")
+            f_name = os.path.basename(orig_path) if orig_path else f"{b_id}.epub"
+            l_b["path"] = os.path.join(DEFAULT_BOOKS_DIR, f_name)
+            merged_books[b_id] = l_b
+        elif r_b and not l_b:
+            orig_path = r_b.get("path", "")
+            f_name = os.path.basename(orig_path) if orig_path else f"{b_id}.epub"
+            r_b["path"] = os.path.join(DEFAULT_BOOKS_DIR, f_name)
+            merged_books[b_id] = r_b
+        else:
+            # Presente en ambas computadoras
+            l_time = l_b.get("lastReadTime", 0)
+            r_time = r_b.get("lastReadTime", 0)
+
+            # Prevalece la posición de lectura del dispositivo más reciente
+            if r_time > l_time:
+                base_b = dict(r_b)
+                other_b = dict(l_b)
+            else:
+                base_b = dict(l_b)
+                other_b = dict(r_b)
+
+            if not base_b.get("cover") and other_b.get("cover"):
+                base_b["cover"] = other_b["cover"]
+
+            # Fusión de Notas por ID único para no perder ningún subrayado
+            l_highlights = l_b.get("highlights", [])
+            r_highlights = r_b.get("highlights", [])
+
+            hl_map = {}
+            for h in r_highlights:
+                if isinstance(h, dict) and "id" in h:
+                    hl_map[h["id"]] = dict(h)
+
+            for h in l_highlights:
+                if isinstance(h, dict) and "id" in h:
+                    h_id = h["id"]
+                    if h_id not in hl_map:
+                        hl_map[h_id] = dict(h)
+                    else:
+                        existing_comment = hl_map[h_id].get("comment", "")
+                        new_comment = h.get("comment", "")
+                        if len(new_comment.strip()) >= len(existing_comment.strip()):
+                            hl_map[h_id] = dict(h)
+
+            base_b["highlights"] = list(hl_map.values())
+            
+            orig_path = base_b.get("path", "")
+            f_name = os.path.basename(orig_path) if orig_path else f"{b_id}.epub"
+            base_b["path"] = os.path.join(DEFAULT_BOOKS_DIR, f_name)
+
+            merged_books[b_id] = base_b
+
+    local_data["books"] = merged_books
+    return local_data
+
 class GoogleDriveCloudAPI:
     """Cliente directo de la API v3 de Google Drive para sincronización en la nube"""
     def __init__(self, access_token=None):
         self.access_token = access_token
         self.folder_id = None
+        self.token_expired = False
         if self.access_token:
             self.ensure_remote_folder()
 
     def set_token(self, token):
         self.access_token = token.strip() if token else None
+        self.token_expired = False
         return self.ensure_remote_folder()
 
     def _headers(self):
@@ -57,7 +136,12 @@ class GoogleDriveCloudAPI:
                 files = data.get("files", [])
                 if files:
                     self.folder_id = files[0]["id"]
+                    self.token_expired = False
                     return self.folder_id
+        except urllib.error.HTTPError as e:
+            if e.code == 401:
+                self.token_expired = True
+            print("Notice checking remote drive folder:", e)
         except Exception as e:
             print("Notice checking remote drive folder:", e)
 
@@ -73,10 +157,14 @@ class GoogleDriveCloudAPI:
             with urllib.request.urlopen(req_create, timeout=10) as resp:
                 data = json.loads(resp.read().decode('utf-8'))
                 self.folder_id = data.get("id")
+                self.token_expired = False
                 return self.folder_id
+        except urllib.error.HTTPError as e:
+            if e.code == 401:
+                self.token_expired = True
         except Exception as e:
             print("Notice creating remote drive folder:", e)
-            return None
+        return None
 
     def list_files_in_folder(self):
         if not self.access_token or not self.folder_id:
@@ -88,10 +176,14 @@ class GoogleDriveCloudAPI:
         try:
             with urllib.request.urlopen(req, timeout=10) as resp:
                 data = json.loads(resp.read().decode('utf-8'))
+                self.token_expired = False
                 return data.get("files", [])
+        except urllib.error.HTTPError as e:
+            if e.code == 401:
+                self.token_expired = True
         except Exception as e:
             print("Error listing files in drive folder:", e)
-            return []
+        return []
 
     def upload_file_to_drive(self, file_name, file_bytes, mime_type="application/octet-stream"):
         if not self.access_token or not self.folder_id:
@@ -136,10 +228,14 @@ class GoogleDriveCloudAPI:
         req_upload = urllib.request.Request(upload_url, data=body, headers=headers, method=method)
         try:
             with urllib.request.urlopen(req_upload, timeout=15) as resp:
+                self.token_expired = False
                 return True
+        except urllib.error.HTTPError as e:
+            if e.code == 401:
+                self.token_expired = True
         except Exception as e:
             print("Error uploading to Google Drive API:", e)
-            return False
+        return False
 
     def download_file_from_drive(self, file_name):
         if not self.access_token or not self.folder_id:
@@ -164,10 +260,14 @@ class GoogleDriveCloudAPI:
         req_down = urllib.request.Request(download_url, headers=self._headers())
         try:
             with urllib.request.urlopen(req_down, timeout=15) as resp:
+                self.token_expired = False
                 return resp.read()
+        except urllib.error.HTTPError as e:
+            if e.code == 401:
+                self.token_expired = True
         except Exception as e:
             print("Error downloading from Google Drive API:", e)
-            return None
+        return None
 
 def extract_epub_cover_base64(epub_path):
     try:
@@ -248,53 +348,49 @@ class EpubApi:
                     if settings.get("googleCloudToken"):
                         self._cloud_token = settings["googleCloudToken"]
                         self.cloud_api.set_token(self._cloud_token)
-            except Exception:
-                pass
+            except Exception as e:
+                print("Init data store notice:", e)
 
     def check_and_update_from_github(self):
-        """Descarga e instala en 1-clic la versión más reciente del código o ejecutable desde GitHub"""
         try:
-            print("Comprobando actualizaciones en GitHub...")
-            url = f"https://github.com/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}/archive/refs/heads/main.zip"
-            
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            req = urllib.request.Request(url, headers=headers)
-            
-            temp_zip = os.path.join(USER_APPDATA_DIR, "latest_update.zip")
-            with urllib.request.urlopen(req, timeout=20) as resp, open(temp_zip, "wb") as f_out:
-                f_out.write(resp.read())
+            zip_url = f"https://github.com/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}/archive/refs/heads/main.zip"
+            temp_zip = os.path.join(USER_APPDATA_DIR, "update_repo.zip")
+            extract_dir = os.path.join(USER_APPDATA_DIR, "temp_update")
 
-            temp_extract_dir = os.path.join(USER_APPDATA_DIR, "update_extracted")
-            if os.path.exists(temp_extract_dir):
-                shutil.rmtree(temp_extract_dir, ignore_errors=True)
+            req = urllib.request.Request(zip_url, headers={"User-Agent": "EpubReaderPro-Updater"})
+            with urllib.request.urlopen(req, timeout=15) as response, open(temp_zip, 'wb') as out_file:
+                shutil.copyfileobj(response, out_file)
+
+            if os.path.exists(extract_dir):
+                shutil.rmtree(extract_dir, ignore_errors=True)
             
-            with zipfile.ZipFile(temp_zip, 'r') as z:
-                z.extractall(temp_extract_dir)
+            with zipfile.ZipFile(temp_zip, 'r') as zip_ref:
+                zip_ref.extractall(extract_dir)
 
-            extracted_subdirs = [d for d in os.listdir(temp_extract_dir) if os.path.isdir(os.path.join(temp_extract_dir, d))]
-            if not extracted_subdirs:
-                return {"error": "El paquete descargado de GitHub no contiene carpetas válidas."}
+            repo_folder_name = f"{GITHUB_REPO_NAME}-main"
+            updated_source_dir = os.path.join(extract_dir, repo_folder_name)
 
-            repo_root = os.path.join(temp_extract_dir, extracted_subdirs[0])
-            
-            target_dir = APP_DIR
-            for root, dirs, files in os.walk(repo_root):
-                rel_path = os.path.relpath(root, repo_root)
-                dest_dir = os.path.join(target_dir, rel_path) if rel_path != "." else target_dir
-                os.makedirs(dest_dir, exist_ok=True)
-                for file_name in files:
-                    if file_name.endswith(".zip") or file_name.endswith(".exe"):
-                        continue
-                    src_file = os.path.join(root, file_name)
-                    dest_file = os.path.join(dest_dir, file_name)
-                    shutil.copy2(src_file, dest_file)
+            if not os.path.exists(updated_source_dir):
+                return {"error": "Estructura del repositorio no reconocida."}
 
-            return {"success": True, "message": "¡Programa actualizado correctamente a la última versión de GitHub! Reiniciando aplicativo..."}
+            updated_static_dir = os.path.join(updated_source_dir, "static")
+            local_static_dir = os.path.join(APP_DIR, "static")
+            if os.path.exists(updated_static_dir):
+                if os.path.exists(local_static_dir):
+                    shutil.rmtree(local_static_dir, ignore_errors=True)
+                shutil.copytree(updated_static_dir, local_static_dir)
+
+            for item_name in ["main.py", "build_exe.py", "README.md"]:
+                src_file = os.path.join(updated_source_dir, item_name)
+                dst_file = os.path.join(APP_DIR, item_name)
+                if os.path.exists(src_file):
+                    shutil.copy2(src_file, dst_file)
+
+            return {"success": True, "message": "Aplicativo actualizado exitosamente con 1-Clic desde GitHub."}
         except Exception as e:
-            return {"error": f"Error al actualizar desde GitHub: {str(e)}"}
+            return {"error": f"Fallo al actualizar desde GitHub: {str(e)}"}
 
     def restart_application(self):
-        """Reinicia el programa inmediatamente"""
         try:
             python = sys.executable
             subprocess.Popen([python] + sys.argv)
@@ -305,7 +401,6 @@ class EpubApi:
             pass
 
     def open_google_account_chooser(self):
-        """Abre la pantalla oficial de Selección de Cuenta de Google (Account Chooser)"""
         url = "https://accounts.google.com/AccountChooser?continue=https%3A%2F%2Fdevelopers.google.com%2Foauthplayground%2F%3Fscopes%3Dhttps%253A%252F%252Fwww.googleapis.com%252Fauth%252Fdrive.file"
         webbrowser.open(url)
         return {"success": True}
@@ -327,7 +422,7 @@ class EpubApi:
             return {"error": "No se pudo conectar a Google Drive. Verifica que el token copiado esté activo."}
 
     def pull_all_from_google_drive(self):
-        """Descarga completa adaptativa desde la carpeta existente EpubReaderData en Google Drive hacia el equipo local"""
+        """Descarga e Integración Multidispositivo a Prueba de Fallas (Pull-First)"""
         if not self._cloud_token or not self.cloud_api.folder_id:
             return 0
 
@@ -341,32 +436,16 @@ class EpubApi:
                     with open(DEFAULT_DATA_FILE, "r", encoding="utf-8") as f:
                         local_data = json.load(f)
 
-                remote_books = remote_data.get("books", {})
-                local_books = local_data.get("books", {})
+                merged_data = merge_library_data(local_data, remote_data)
 
-                for b_id, b_info in remote_books.items():
-                    orig_path = b_info.get("path", "")
-                    file_name = os.path.basename(orig_path) if orig_path else f"{b_id}.epub"
-                    b_info["path"] = os.path.join(DEFAULT_BOOKS_DIR, file_name)
-
-                    if b_id not in local_books:
-                        local_books[b_id] = b_info
-                    else:
-                        if b_info.get("progressPct", 0) > local_books[b_id].get("progressPct", 0):
-                            local_books[b_id]["progressPct"] = b_info["progressPct"]
-                            local_books[b_id]["cfi"] = b_info.get("cfi")
-                            local_books[b_id]["anchorText"] = b_info.get("anchorText")
-                        if len(b_info.get("highlights", [])) > len(local_books[b_id].get("highlights", [])):
-                            local_books[b_id]["highlights"] = b_info["highlights"]
-                        local_books[b_id]["path"] = b_info["path"]
-
-                local_data["books"] = local_books
-                if "settings" not in local_data:
-                    local_data["settings"] = {}
-                local_data["settings"]["googleCloudToken"] = self._cloud_token
+                if "settings" not in merged_data:
+                    merged_data["settings"] = {}
+                merged_data["settings"]["googleCloudToken"] = self._cloud_token
+                if self._sync_folder:
+                    merged_data["settings"]["syncFolder"] = self._sync_folder
 
                 with open(DEFAULT_DATA_FILE, "w", encoding="utf-8") as f:
-                    json.dump(local_data, f, ensure_ascii=False, indent=2)
+                    json.dump(merged_data, f, ensure_ascii=False, indent=2)
 
             except Exception as e:
                 print("Error fusionando datos remotos:", e)
@@ -378,7 +457,7 @@ class EpubApi:
             if f_name.endswith(".epub"):
                 local_book_path = os.path.join(DEFAULT_BOOKS_DIR, f_name)
                 if not os.path.exists(local_book_path):
-                    print(f"Descargando libro desde Google Drive por demanda: {f_name}...")
+                    print(f"Descargando libro desde Google Drive: {f_name}...")
                     epub_bytes = self.cloud_api.download_file_from_drive(f_name)
                     if epub_bytes:
                         with open(local_book_path, "wb") as f_out:
@@ -386,16 +465,6 @@ class EpubApi:
                         downloaded += 1
 
         return downloaded
-
-    def _sync_to_cloud_api(self):
-        if not self._cloud_token or not self.cloud_api.folder_id:
-            return
-
-        self.pull_all_from_google_drive()
-
-        if os.path.exists(DEFAULT_DATA_FILE):
-            with open(DEFAULT_DATA_FILE, "rb") as f:
-                self.cloud_api.upload_file_to_drive("library_data.json", f.read(), "application/json")
 
     def select_sync_folder_dialog(self):
         if not self._window:
@@ -419,13 +488,25 @@ class EpubApi:
         sync_books_dir = os.path.join(self._sync_folder, "books")
         os.makedirs(sync_books_dir, exist_ok=True)
 
-        local_mtime = os.path.getmtime(DEFAULT_DATA_FILE) if os.path.exists(DEFAULT_DATA_FILE) else 0
-        drive_mtime = os.path.getmtime(sync_data_file) if os.path.exists(sync_data_file) else 0
+        local_data = {"books": {}}
+        if os.path.exists(DEFAULT_DATA_FILE):
+            try:
+                with open(DEFAULT_DATA_FILE, "r", encoding="utf-8") as f:
+                    local_data = json.load(f)
+            except Exception: pass
 
-        if drive_mtime > local_mtime:
-            shutil.copy2(sync_data_file, DEFAULT_DATA_FILE)
-        elif local_mtime > drive_mtime and os.path.exists(DEFAULT_DATA_FILE):
-            shutil.copy2(DEFAULT_DATA_FILE, sync_data_file)
+        sync_data = {"books": {}}
+        if os.path.exists(sync_data_file):
+            try:
+                with open(sync_data_file, "r", encoding="utf-8") as f:
+                    sync_data = json.load(f)
+            except Exception: pass
+
+        merged = merge_library_data(local_data, sync_data)
+        with open(DEFAULT_DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(merged, f, ensure_ascii=False, indent=2)
+        with open(sync_data_file, "w", encoding="utf-8") as f:
+            json.dump(merged, f, ensure_ascii=False, indent=2)
 
         if os.path.exists(DEFAULT_BOOKS_DIR):
             for f in os.listdir(DEFAULT_BOOKS_DIR):
@@ -565,10 +646,12 @@ class EpubApi:
                     if self._cloud_token:
                         if "settings" not in data: data["settings"] = {}
                         data["settings"]["googleCloudToken"] = self._cloud_token
+                    
+                    data["token_expired"] = self.cloud_api.token_expired
                     return data
-            return {"books": {}}
+            return {"books": {}, "token_expired": self.cloud_api.token_expired}
         except Exception as e:
-            return {"books": {}}
+            return {"books": {}, "token_expired": self.cloud_api.token_expired}
 
     def export_notes_file(self, default_name, content, file_format):
         if not self._window:
@@ -605,7 +688,6 @@ def main():
     api.set_window(window)
 
     def on_closing():
-        # Cierre instantáneo y seguro sin deadlocks ni diálogos bloqueantes
         return True
 
     window.events.closing += on_closing
